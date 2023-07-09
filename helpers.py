@@ -12,8 +12,6 @@ from keras.layers import Dense, LSTM
 pd.set_option('mode.chained_assignment', None)  # Hide SettingWithCopyWarning
 
 
-
-
 def get_dataframe(ticker, start_date_utc, end_date_utc):
     url = 'https://eodhistoricaldata.com/api/intraday/{}?api_token=631f8f30266e54.07589191&order=d&interval=1h&fmt=json&from={}&to={}'.format(ticker, start_date_utc, end_date_utc)
     response = urllib.request.urlopen(url)
@@ -31,11 +29,11 @@ def prepare_data(data, time_steps=1):
     return np.array(X), np.array(y)
 
 def initiate_model(low_high_df):
-    # # model
+    # model
     low_prices = low_high_df['low'].values.reshape(-1, 1)
     high_prices = low_high_df['high'].values.reshape(-1, 1)
 
-    # # Scale the data using MinMaxScaler
+    # Scale the data using MinMaxScaler
     scaler = MinMaxScaler(feature_range=(0, 1))
     scaled_data_low = scaler.fit_transform(low_prices)
     scaled_data_high = scaler.fit_transform(high_prices)
