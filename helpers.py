@@ -74,14 +74,9 @@ def run_model(model, low_high_df, train_size, time_steps, scaled_data, x_test, x
     # model
     low_prices = low_high_df['low'].values.reshape(-1, 1)
     high_prices = low_high_df['high'].values.reshape(-1, 1)
-
-    # Scale the data using MinMaxScaler
-    # scaler = MinMaxScaler(feature_range=(0, 1))
-    # scaled_data_low = scaler.fit_transform(low_prices)
-    # scaled_data_high = scaler.fit_transform(high_prices)
-
+    
     # Compile the model
-    model.fit(x_train, y_train, batch_size=32, epochs=15, verbose=0)
+    model.fit(x_train, y_train, batch_size=3, epochs=5, verbose=0)
 
     # Make predictions on the test data
     scaler = MinMaxScaler(feature_range=(0, 1))
@@ -93,11 +88,11 @@ def run_model(model, low_high_df, train_size, time_steps, scaled_data, x_test, x
 
     predictions = model.predict(x_test, verbose=0)
     predictions = scaler.inverse_transform(predictions)
-    # y_test = scaler.inverse_transform([y_test])
 
-    percentage_threshold = 5
+    tolerance_percentage = 3
     current_price = predictions[-1][0]
-    threshold = current_price * (1 - percentage_threshold / 100.0)
+    threshold = current_price * (1 - tolerance_percentage / 100.0)
+    
 
     valid = low_high_df[train_size:-1]
     valid[col_name] = predictions
@@ -119,6 +114,25 @@ def run_model(model, low_high_df, train_size, time_steps, scaled_data, x_test, x
 
     # Inverse transform the predicted prices
     predicted = scaler.inverse_transform(predictions_list)
+
+    if col_name=='predictions_low':
+        last_price = low_high_df['low'].iloc[-1]
+    elif col_name=='predictions_high':
+        last_price = low_high_df['high'].iloc[-1]
+
+    lower_threshold = last_price * (1 - tolerance_percentage / 100.0)
+    upper_threshold = last_price * (1 + tolerance_percentage / 100.0)
+
+    num_samples = 21
+    erratic_factor = 6  # Adjust the erratic factor to control randomness (lower value for less erratic behavior)
+
+    predicted_clipped = np.where(np.logical_or(predicted < lower_threshold, predicted > upper_threshold),
+                                    np.random.uniform(lower_threshold, upper_threshold, size=num_samples),
+                                    predicted)
+
+    erratic_noise = np.random.uniform(-erratic_factor, erratic_factor, size=num_samples)
+    predicted_clipped = predicted_clipped + erratic_noise
+    predicted = predicted_clipped[-1]
 
     return predicted
 
