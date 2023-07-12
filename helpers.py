@@ -224,6 +224,4 @@ def get_pred_table(next_three_business_days, lows_list, highs_list):
     deviations = pd.Series([0.1, 0.2, 0.3])
     res.loc[mask, 'predicted_high'] += deviations
 
-    
-
     return res
