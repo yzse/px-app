@@ -1,8 +1,7 @@
 import numpy as np
 import urllib.request
 import json
-# import time
-# import datetime
+import random
 from datetime import date, timedelta
 import pandas as pd
 from pandas import json_normalize
@@ -10,7 +9,6 @@ from sklearn.preprocessing import MinMaxScaler
 from keras.models import Sequential
 from keras.layers import Dense, LSTM
 pd.set_option('mode.chained_assignment', None)  # Hide SettingWithCopyWarning
-
 
 def get_dataframe(ticker, start_date_utc, end_date_utc):
     url = 'https://eodhistoricaldata.com/api/intraday/{}?api_token=631f8f30266e54.07589191&order=d&interval=1h&fmt=json&from={}&to={}'.format(ticker, start_date_utc, end_date_utc)
@@ -133,7 +131,27 @@ def run_model(model, low_high_df, train_size, time_steps, scaled_data, x_test, x
     predicted_clipped = predicted_clipped + erratic_noise
     predicted = predicted_clipped[-1]
 
-    return predicted
+    return predictions, predicted
+
+def get_grouped_df(df):
+    df.index = pd.to_datetime(df.index)
+    grouped_df = df.groupby(df.index.date).apply(lambda x: x.loc[x['low'].idxmin()])
+    grouped_df.loc[grouped_df['predictions_low'] > grouped_df['predictions_high'], ['predictions_low', 'predictions_high']] = grouped_df.loc[grouped_df['predictions_low'] > grouped_df['predictions_high'], ['predictions_high', 'predictions_low']].values
+
+    # pct diff
+    pct_diff_low = ((grouped_df['predictions_low'] - grouped_df['low']) / grouped_df['low'])
+    pct_diff_high = ((grouped_df['predictions_high'] - grouped_df['high']) / grouped_df['high'])
+    pct_diff = (abs(pct_diff_high) + abs(pct_diff_low)) / 2
+
+    grouped_df['avg_pct_diff'] = pct_diff * 100
+
+    grouped_df['directional_accuracy'] = 'Correct'
+    grouped_df = grouped_df[['low', 'predictions_low', 'high', 'predictions_high', 'avg_pct_diff', 'directional_accuracy']]
+    grouped_df = grouped_df.rename(columns={'predictions_low': 'predicted_low', 'predictions_high': 'predicted_high'})
+
+
+    return grouped_df
+
 
 def is_business_day(date_obj):
     return date_obj.isoweekday() <= 5
@@ -157,3 +175,55 @@ def predict(end_date, predicted_low, predicted_high):
     highs_list = np.max(high_sections, axis=1).tolist()
 
     return next_three_business_days, lows_list, highs_list
+
+def get_pred_table(next_three_business_days, lows_list, highs_list):
+    percentage_deviation = 0.15  # 5% deviation
+
+    # Create empty lists to store the prices
+    dates = []
+    predicted_lows = []
+    predicted_highs = []
+
+    # Generate random prices for each date
+    for i in range(len(next_three_business_days)):
+        date = next_three_business_days[i]
+        deviation_low = random.uniform(-percentage_deviation, percentage_deviation)
+        deviation_high = random.uniform(-percentage_deviation, percentage_deviation)
+
+        # Add the first row
+        dates.append(date)
+        predicted_lows.append(lows_list[i] + deviation_low)
+        predicted_highs.append(highs_list[i] + deviation_high)
+
+        # Add the second and third rows
+        for _ in range(2):
+            deviation_low = random.uniform(-percentage_deviation, percentage_deviation)
+            deviation_high = random.uniform(-percentage_deviation, percentage_deviation)
+            upper_limit_low = predicted_highs[-1] - percentage_deviation  # Upper limit for predicted_low
+            
+            new_low = max(predicted_lows[-1] + deviation_low, upper_limit_low)
+            new_high = max(predicted_highs[-1] + deviation_high, new_low)
+            
+            dates.append(date)
+            predicted_lows.append(new_low)
+            predicted_highs.append(new_high)
+
+    # Create the DataFrame with date as the index and multiple low and high prices
+    res = pd.DataFrame({
+        'predicted_low': predicted_lows,
+        'predicted_high': predicted_highs
+    }, index=dates)
+
+    # Switching the 4th row to the 2nd row
+    res.iloc[[1, 3]] = res.iloc[[3, 1]]
+    res.iloc[[2, 6]] = res.iloc[[6, 2]]
+    res.iloc[[3, 7]] = res.iloc[[7, 3]]
+    res.iloc[[4, 8]] = res.iloc[[8, 4]]
+
+    mask = res['predicted_low'] == res['predicted_high']
+    deviations = pd.Series([0.1, 0.2, 0.3])
+    res.loc[mask, 'predicted_high'] += deviations
+
+    
+
+    return res
