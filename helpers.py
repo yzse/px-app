@@ -8,6 +8,7 @@ from pandas import json_normalize
 from sklearn.preprocessing import MinMaxScaler
 from keras.models import Sequential
 from keras.layers import Dense, LSTM
+from sklearn.impute import KNNImputer
 pd.set_option('mode.chained_assignment', None)  # Hide SettingWithCopyWarning
 
 def get_dataframe(ticker, start_date_utc, end_date_utc):
@@ -224,4 +225,10 @@ def get_pred_table(next_three_business_days, lows_list, highs_list):
     deviations = pd.Series([0.1, 0.2, 0.3])
     res.loc[mask, 'predicted_high'] += deviations
 
-    return res
+    # check NaNs
+    pred_df_filled = res.copy()
+    imputer = KNNImputer(n_neighbors=5)
+    pred_df_filled['predicted_high'] = imputer.fit_transform(pred_df_filled[['predicted_high']])
+    pred_df_filled['predicted_high'] = pred_df_filled[['predicted_low', 'predicted_high']].max(axis=1)
+
+    return pred_df_filled
