@@ -4,13 +4,24 @@ import json
 import random
 from datetime import date, timedelta
 import pandas as pd
+import streamlit as st
 from pandas import json_normalize
 from sklearn.preprocessing import MinMaxScaler
 from keras.models import Sequential
 from keras.layers import Dense, LSTM
 from sklearn.impute import KNNImputer
+import os
+os.environ['PYTHONHASHSEED']=str(1)
+import tensorflow as tf
 pd.set_option('mode.chained_assignment', None)  # Hide SettingWithCopyWarning
 
+# set seeds
+os.environ['PYTHONHASHSEED']=str(1)
+tf.random.set_seed(1)
+np.random.seed(1)
+random.seed(1)
+
+@st.cache_data
 def get_dataframe(ticker, start_date_utc, end_date_utc):
     url = 'https://eodhistoricaldata.com/api/intraday/{}?api_token=631f8f30266e54.07589191&order=d&interval=1h&fmt=json&from={}&to={}'.format(ticker, start_date_utc, end_date_utc)
     response = urllib.request.urlopen(url)
@@ -59,8 +70,8 @@ def initiate_model(low_high_df):
 
     # Build the LSTM model
     model = Sequential()
-    model.add(LSTM(64, return_sequences=True, input_shape=(x_train_low.shape[1], 1)))
-    model.add(LSTM(32, return_sequences=False))
+    model.add(LSTM(128, return_sequences=True, input_shape=(x_train_low.shape[1], 1)))
+    model.add(LSTM(64, return_sequences=False))
     # model.add(Dropout(0.1))
     model.add(Dense(25))
     model.add(Dense(1))
@@ -68,14 +79,15 @@ def initiate_model(low_high_df):
 
     return model, scaled_data_low, scaled_data_high, x_train_low, y_train_low, x_test_low, y_test_low, x_train_high, y_train_high, x_test_high, y_test_high
 
-def run_model(model, low_high_df, train_size, time_steps, scaled_data, x_test, x_train, y_train, col_name):
+@st.cache_resource
+def run_model(_model, low_high_df, train_size, time_steps, scaled_data, x_test, x_train, y_train, col_name):
 
     # model
     low_prices = low_high_df['low'].values.reshape(-1, 1)
     high_prices = low_high_df['high'].values.reshape(-1, 1)
     
     # Compile the model
-    model.fit(x_train, y_train, batch_size=1, epochs=15, verbose=0)
+    _model.fit(x_train, y_train, batch_size=1, epochs=15, verbose=0)
 
     # Make predictions on the test data
     scaler = MinMaxScaler(feature_range=(0, 1))
@@ -85,7 +97,7 @@ def run_model(model, low_high_df, train_size, time_steps, scaled_data, x_test, x
     elif col_name=='predictions_high':
         scaled_data = scaler.fit_transform(high_prices)
 
-    predictions = model.predict(x_test, verbose=0)
+    predictions = _model.predict(x_test, verbose=0)
     predictions = scaler.inverse_transform(predictions)
 
     tolerance_percentage = 3
@@ -102,7 +114,7 @@ def run_model(model, low_high_df, train_size, time_steps, scaled_data, x_test, x
     # Make predictions for the next 21 values
     predictions_list = []
     for _ in range(21):
-        next_day_prediction = model.predict(next_day_input, verbose=0)
+        next_day_prediction = _model.predict(next_day_input, verbose=0)
         next_day_prediction = np.minimum(next_day_prediction, threshold)
         predictions_list.append(next_day_prediction)
         next_day_input = np.append(next_day_input[:, 1:, :], np.expand_dims(next_day_prediction, axis=1), axis=1)
@@ -150,13 +162,12 @@ def get_grouped_df(df):
     grouped_df = grouped_df[['low', 'predictions_low', 'high', 'predictions_high', 'avg_pct_diff', 'directional_accuracy']]
     grouped_df = grouped_df.rename(columns={'predictions_low': 'predicted_low', 'predictions_high': 'predicted_high'})
 
-
     return grouped_df
-
 
 def is_business_day(date_obj):
     return date_obj.isoweekday() <= 5
 
+@st.cache_data
 def predict(end_date, predicted_low, predicted_high):
     # Get the next three business days
     business_days_count = 0
@@ -230,5 +241,12 @@ def get_pred_table(next_three_business_days, lows_list, highs_list):
     imputer = KNNImputer(n_neighbors=5)
     pred_df_filled['predicted_high'] = imputer.fit_transform(pred_df_filled[['predicted_high']])
     pred_df_filled['predicted_high'] = pred_df_filled[['predicted_low', 'predicted_high']].max(axis=1)
+
+    # reduce variation
+    smoothing_factor = 0.25
+    mean_val = (pred_df_filled["predicted_low"] + pred_df_filled["predicted_high"]) / 2
+    diff = (pred_df_filled["predicted_high"] - pred_df_filled["predicted_low"]) * smoothing_factor
+    pred_df_filled["predicted_high"] = mean_val + diff
+    pred_df_filled["predicted_low"] = mean_val - diff
 
     return pred_df_filled
