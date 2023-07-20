@@ -10,7 +10,10 @@ from sklearn.preprocessing import MinMaxScaler
 from keras.models import Sequential
 from keras.layers import Dense, LSTM
 from sklearn.impute import KNNImputer
+from collections import defaultdict
 import os
+import fnmatch
+import re
 os.environ['PYTHONHASHSEED']=str(1)
 import tensorflow as tf
 pd.set_option('mode.chained_assignment', None)  # Hide SettingWithCopyWarning
@@ -20,10 +23,11 @@ os.environ['PYTHONHASHSEED']=str(1)
 tf.random.set_seed(1)
 np.random.seed(1)
 random.seed(1)
+EHD_API_KEY = st.secrets["EHD_API_KEY"]
 
 @st.cache_data
 def get_dataframe(ticker, start_date_utc, end_date_utc):
-    url = 'https://eodhistoricaldata.com/api/intraday/{}?api_token=631f8f30266e54.07589191&order=d&interval=1h&fmt=json&from={}&to={}'.format(ticker, start_date_utc, end_date_utc)
+    url = 'https://eodhistoricaldata.com/api/intraday/{}?api_token={}&order=d&interval=1h&fmt=json&from={}&to={}'.format(ticker, EHD_API_KEY, start_date_utc, end_date_utc)
     response = urllib.request.urlopen(url)
     eod_data = json.loads(response.read())
     eod_data_df = pd.json_normalize(eod_data)
@@ -250,3 +254,51 @@ def get_pred_table(next_three_business_days, lows_list, highs_list):
     pred_df_filled["predicted_low"] = mean_val - diff
 
     return pred_df_filled
+
+def filter_and_reformat_data(data):
+    ticker_times = defaultdict(list)
+    
+    # Step 1: Extract the unique date entries and their corresponding latest times for each ticker.
+    for item in data:
+        parts = item.split("_")
+        if len(parts) < 4:
+            continue
+
+        ticker = parts[-2]
+        _date = parts[1].split('/')[1]
+        _time = parts[2]
+        date_time = (_date, _time)
+        ticker_times[ticker].append(date_time)
+
+    # Step 2: Filter the list to only include the latest time entries for each unique date and ticker.
+    filtered_data = []
+    for ticker, date_times in ticker_times.items():
+        latest_time = max(date_times, key=lambda x: x[1])
+        filtered_data.extend([f"myawsbucket-st/'streamlit_uploads'/{latest_time[0]}_{latest_time[1]}_{ticker}_lookback.csv",
+                              f"myawsbucket-st/'streamlit_uploads'/{latest_time[0]}_{latest_time[1]}_{ticker}_predictions.csv"])
+
+    # Step 3: Reformat the remaining entries.
+    reformatted_data = []
+    for item in filtered_data:
+        parts = item.split("_")
+        if len(parts) < 4:
+            continue
+
+        ticker = parts[-2]
+        date = parts[1].split('/')[1]
+        reformatted_data.append(f"{ticker.upper()} 2023/{date[4:6]}/{date[6:8]} {('Lookback' if 'lookback' in item else 'Predictions')}")
+
+    return reformatted_data
+
+def find_files_with_substrings(file_list, substrings):
+    matched_files = []
+    for filename in file_list:
+        if all(substring in filename for substring in substrings):
+            matched_files.append(filename)
+    if len(matched_files) > 1:
+        matched_files = matched_files[-1]
+    elif matched_files:
+        matched_files = matched_files[0]
+    else:
+        matched_files = None
+    return matched_files
