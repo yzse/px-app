@@ -5,4 +5,4 @@ tensorflow==2.7.0
 keras==2.7.0
 streamlit==1.18.0
 s3fs==2023.6.0
-git+https://github.com/streamlit/files-connection
+st-files-connection @ git+https://github.com/streamlit/files-connection@c65a9f0da856207086540baee3a36346bb39c0eb

@@ -12,8 +12,6 @@ from keras.layers import Dense, LSTM
 from sklearn.impute import KNNImputer
 from collections import defaultdict
 import os
-import fnmatch
-import re
 os.environ['PYTHONHASHSEED']=str(1)
 import tensorflow as tf
 pd.set_option('mode.chained_assignment', None)  # Hide SettingWithCopyWarning
