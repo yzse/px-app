@@ -106,6 +106,7 @@ def show_main_page():
             s_file = find_files_with_substrings(s3_files, [s_ticker, s_date, s_status])
 
             # display table
+            # @st.cache(ttl=24*3600)
             df = conn.read(s_file, input_format="csv", ttl=600)
             df = df.rename({'Unnamed: 0': 'date'}, axis=1)
             st.write(df)

@@ -25,7 +25,7 @@ np.random.seed(1)
 random.seed(1)
 EHD_API_KEY = st.secrets["EHD_API_KEY"]
 
-@st.cache_data
+@st.cache_data(ttl=24*3600, max_entries=3)
 def get_dataframe(ticker, start_date_utc, end_date_utc):
     url = 'https://eodhistoricaldata.com/api/intraday/{}?api_token={}&order=d&interval=1h&fmt=json&from={}&to={}'.format(ticker, EHD_API_KEY, start_date_utc, end_date_utc)
     response = urllib.request.urlopen(url)
@@ -83,7 +83,7 @@ def initiate_model(low_high_df):
 
     return model, scaled_data_low, scaled_data_high, x_train_low, y_train_low, x_test_low, y_test_low, x_train_high, y_train_high, x_test_high, y_test_high
 
-@st.cache_resource
+@st.cache_resource(ttl=24*3600, max_entries=3)
 def run_model(_model, low_high_df, train_size, time_steps, scaled_data, x_test, x_train, y_train, col_name):
 
     # model
@@ -171,7 +171,7 @@ def get_grouped_df(df):
 def is_business_day(date_obj):
     return date_obj.isoweekday() <= 5
 
-@st.cache_data
+@st.cache_data(ttl=24*3600, max_entries=3)
 def predict(end_date, predicted_low, predicted_high):
     # Get the next three business days
     business_days_count = 0
