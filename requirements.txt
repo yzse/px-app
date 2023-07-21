@@ -5,5 +5,5 @@ tensorflow==2.7.0
 keras==2.7.0
 streamlit
 s3fs==2023.6.0
-protobuf==3.20.*
+protobuf~=3.19.0
 st-files-connection @ git+https://github.com/streamlit/files-connection@c65a9f0da856207086540baee3a36346bb39c0eb
