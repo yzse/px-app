@@ -6,14 +6,10 @@ from datetime import date, timedelta
 import pandas as pd
 import s3fs
 from helpers import *
-pd.set_option('mode.chained_assignment', None)  # Hide SettingWithCopyWarning
-
-# tab1, tab2 = st.tabs(['Application', 'Reports'])
+pd.set_option('mode.chained_assignment', None)
+pd.set_option('display.float_format', '{:.2f}'.format)
 
 def show_main_page():
-
-    
-    # with tab1:
 
     st.title("Stock Price Prediction for Highs & Lows")
 
@@ -32,7 +28,7 @@ def show_main_page():
 
         # dataframe
         eod_data_df = get_dataframe(ticker, start_date_utc, end_date_utc)
-        low_high_df = eod_data_df.filter(['low', 'high'])
+        low_high_df = eod_data_df.filter(['low', 'high', 'close'])
 
         # model
         model, scaled_data_low, scaled_data_high, x_train_low, y_train_low, x_test_low, y_test_low, x_train_high, y_train_high, x_test_high, y_test_high = initiate_model(low_high_df)
@@ -42,7 +38,6 @@ def show_main_page():
         train_size = int(len(scaled_data_low) * 0.8)
         time_steps = 1
         
-
         predictions_low_arr, predicted_low = run_model(model, low_high_df, train_size, time_steps, scaled_data_low, x_test_low, x_train_low, y_train_low, 'predictions_low')
 
         predictions_high_arr, predicted_high = run_model(model, low_high_df, train_size, time_steps, scaled_data_high, x_test_high, x_train_high, y_train_high, 'predictions_high')
@@ -53,6 +48,10 @@ def show_main_page():
 
         group_df = get_grouped_df(valid)
         group_df = group_df.tail(21)
+        group_df = group_df.round(2)
+        group_df = group_df.applymap(remove_trailing_zeroes)
+        group_df = group_df.drop(['close'], axis=1)
+
         
         st.title("Historical Prices Table")
         st.write("Predicted & actual prices for the past 30 days, based on prices from the last 365 days.")
@@ -139,6 +138,8 @@ def show_main_page_indicators():
         ##### if Vix low -> leave as is
         indicator_df = append_vix_beta(group_df)
 
+        group_df = group_df[['low', 'predicted_low','high',	'predicted_high','avg_pct_diff','directional_accuracy']]
+
         st.title("Indicators")
         st.write(" - VIX: Cboe Volatility Index")
         st.write(" - Stock Beta: Volatility of selected stock")
@@ -150,10 +151,15 @@ def show_main_page_indicators():
 
         st.write(" - `Stock Beta:` quantifies a stock's volatility compared to the market, with values over 1.0 indicating greater volatility. The higher the stock beta, the more volatile the predicted price movement will be. Here, the beta is benchmarked against the S&P500.")
 
-        group_df = group_df[['low', 'predicted_low','high',	'predicted_high','avg_pct_diff','directional_accuracy']]
-        st.table(group_df.iloc[1:])
+        group_df = group_df.round(2)
+        group_df = group_df.applymap(remove_trailing_zeroes)
+        group_df = group_df.iloc[1:]
+
+
+        st.table(group_df)
 
         st.write(" - Added Indicators:")
+
         st.table(indicator_df)
 
         ############################# results ###############################
@@ -176,11 +182,8 @@ def show_main_page_indicators():
             - Loss Metric: `mean squared error`
         """)
     
-        # st.write(pred_df)
-
         st.write(pred_df_adjusted)
 
-        
         # upload
         s3 = s3fs.S3FileSystem(anon=False)
         time_t = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")

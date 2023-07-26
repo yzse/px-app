@@ -15,7 +15,8 @@ import os
 os.environ['PYTHONHASHSEED']=str(1)
 import tensorflow as tf
 import yfinance as yf
-pd.set_option('mode.chained_assignment', None)  # Hide SettingWithCopyWarning
+pd.set_option('mode.chained_assignment', None)
+pd.set_option('display.float_format', '{:.2f}'.format)
 
 # set seeds
 os.environ['PYTHONHASHSEED']=str(1)
@@ -160,10 +161,14 @@ def get_grouped_df(df):
     pct_diff = (abs(pct_diff_high) + abs(pct_diff_low)) / 2
 
     grouped_df['avg_pct_diff'] = pct_diff * 100
+    grouped_df['avg_pct_diff'] = grouped_df['avg_pct_diff'].round(2)
 
     grouped_df['directional_accuracy'] = 'Correct'
     grouped_df = grouped_df[['low', 'predictions_low', 'high', 'predictions_high', 'avg_pct_diff', 'directional_accuracy', 'close']]
+    
     grouped_df = grouped_df.rename(columns={'predictions_low': 'predicted_low', 'predictions_high': 'predicted_high'})
+
+    grouped_df[['low', 'predicted_low', 'high', 'predicted_high', 'avg_pct_diff']] = grouped_df[['low', 'predicted_low', 'high', 'predicted_high', 'avg_pct_diff']].round(2)
 
     return grouped_df
 
@@ -252,6 +257,8 @@ def get_pred_table(next_three_business_days, lows_list, highs_list):
     pred_df_filled["predicted_high"] = mean_val + diff
     pred_df_filled["predicted_low"] = mean_val - diff
 
+    pred_df_filled[['predicted_low', 'predicted_high']] = pred_df_filled[['predicted_low', 'predicted_high']].round(2)
+
     return pred_df_filled
 
 def filter_and_reformat_data(data):
@@ -303,26 +310,7 @@ def find_files_with_substrings(file_list, substrings):
     return matched_files
 
 def calculate_stock_beta(low_prices, high_prices, start_date, end_date):
-    """
-    Calculate the beta of an asset using historical low and high prices and the S&P 500 index as the benchmark.
-
-    Parameters:
-        low_prices (pd.Series): Series containing historical low prices of the asset.
-        high_prices (pd.Series): Series containing historical high prices of the asset.
-        start_date (str): Start date for calculating beta (YYYY-MM-DD format).
-        end_date (str): End date for calculating beta (YYYY-MM-DD format).
-
-    Returns:
-        float: Beta value.
-    """
-    # Replace this line with the appropriate ticker symbol if you want a different benchmark.
     benchmark_symbol = '^GSPC'  # S&P 500 as the benchmark index
-
-    # Fetch historical prices for the benchmark index if needed
-    # benchmark_data = yf.download(benchmark_symbol, start=start_date, end=end_date)['Adj Close']
-    
-    # For a hard-coded S&P 500 index, we can directly use the S&P 500 ETF (SPDR S&P 500 ETF Trust, ticker: SPY) as a proxy.
-    # The SPY ETF closely tracks the performance of the S&P 500 index.
     benchmark_data = yf.download(benchmark_symbol, start=start_date, end=end_date)['Adj Close']
 
     # Calculate the daily returns of the asset and the benchmark index
@@ -336,9 +324,6 @@ def calculate_stock_beta(low_prices, high_prices, start_date, end_date):
     # Calculate the covariance matrix and the variance of the benchmark returns
     covariance_matrix = np.cov(asset_returns, benchmark_returns)
     benchmark_variance = np.var(benchmark_returns)
-
-    # Calculate beta as the covariance between asset returns and benchmark returns
-    # divided by the variance of benchmark returns
     beta = covariance_matrix[0, 1] / benchmark_variance
 
     return beta
@@ -365,13 +350,13 @@ def append_vix_beta(df):
 
     rolling_cov = df['close'].rolling(window=2).cov(df['sp500'])
     rolling_var = df['sp500'].rolling(window=2).var()
-    df['beta'] = (rolling_cov / rolling_var).abs()
-    
+    beta = (rolling_cov / rolling_var).abs()
+    df['beta'] = beta
 
     # adjust predicted high and lows based on VIX `vix_values`
     
-    df['predicted_low_adjusted'] = np.random.normal(loc=df['predicted_low'], scale=df['predicted_low'] * df['beta'])
-    df['predicted_high_adjusted'] = np.random.normal(loc=df['predicted_high'], scale=df['predicted_high'] * df['beta'])
+    df['predicted_low_adjusted'] = np.random.normal(loc=df['predicted_low'], scale=df['predicted_low'] * beta)
+    df['predicted_high_adjusted'] = np.random.normal(loc=df['predicted_high'], scale=df['predicted_high'] * beta)
 
     # pct diff
     pct_diff_low = ((df['predicted_low_adjusted'] - df['low']) / df['low'])
@@ -383,7 +368,15 @@ def append_vix_beta(df):
 
     df[['predicted_low_adjusted', 'predicted_high_adjusted']] = df[['predicted_low_adjusted', 'predicted_high_adjusted']].agg([min, max], axis=1)
 
-    return df.iloc[1:]
+    df = df.iloc[1:]
+
+    df = df.round(2)
+
+    df = df.applymap(remove_trailing_zeroes)
+
+    df['beta'] = beta
+
+    return df
 
 
 def adjust_pred_table(df):
@@ -409,4 +402,16 @@ def adjust_pred_table(df):
     df["predicted_high_adjusted"] = mean_val + diff
     df["predicted_low_adjusted"] = mean_val - diff
 
+    df[['predicted_low', 'predicted_high', 'predicted_low_adjusted', 'predicted_high_adjusted']] = df[['predicted_low', 'predicted_high', 'predicted_low_adjusted', 'predicted_high_adjusted']].round(2)
+
     return df
+
+def remove_trailing_zeroes(val):
+    if isinstance(val, float):
+        return '{:.2f}'.format(val).rstrip('0').rstrip('.')
+    return val
+
+# def remove_trailing_zeroes(val, column_name):
+#     if column_name == 'beta' or not isinstance(val, float):
+#         return val
+#     return '{:.2f}'.format(val).rstrip('0').rstrip('.')
