@@ -1,5 +1,5 @@
 import streamlit as st
-from main import show_main_page, show_report_page
+from main import show_main_page, show_report_page, show_main_page_indicators
 
 def check_password():
     """Returns `True` if the user had the correct password."""
@@ -33,6 +33,7 @@ if check_password():
     # show_main_page()
     page_names_to_funcs = {
         "Application": show_main_page,
+        "Application+": show_main_page_indicators,
         "Reports": show_report_page,
     }
 

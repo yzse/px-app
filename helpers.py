@@ -14,6 +14,7 @@ from collections import defaultdict
 import os
 os.environ['PYTHONHASHSEED']=str(1)
 import tensorflow as tf
+import yfinance as yf
 pd.set_option('mode.chained_assignment', None)  # Hide SettingWithCopyWarning
 
 # set seeds
@@ -161,7 +162,7 @@ def get_grouped_df(df):
     grouped_df['avg_pct_diff'] = pct_diff * 100
 
     grouped_df['directional_accuracy'] = 'Correct'
-    grouped_df = grouped_df[['low', 'predictions_low', 'high', 'predictions_high', 'avg_pct_diff', 'directional_accuracy']]
+    grouped_df = grouped_df[['low', 'predictions_low', 'high', 'predictions_high', 'avg_pct_diff', 'directional_accuracy', 'close']]
     grouped_df = grouped_df.rename(columns={'predictions_low': 'predicted_low', 'predictions_high': 'predicted_high'})
 
     return grouped_df
@@ -300,3 +301,112 @@ def find_files_with_substrings(file_list, substrings):
     else:
         matched_files = None
     return matched_files
+
+def calculate_stock_beta(low_prices, high_prices, start_date, end_date):
+    """
+    Calculate the beta of an asset using historical low and high prices and the S&P 500 index as the benchmark.
+
+    Parameters:
+        low_prices (pd.Series): Series containing historical low prices of the asset.
+        high_prices (pd.Series): Series containing historical high prices of the asset.
+        start_date (str): Start date for calculating beta (YYYY-MM-DD format).
+        end_date (str): End date for calculating beta (YYYY-MM-DD format).
+
+    Returns:
+        float: Beta value.
+    """
+    # Replace this line with the appropriate ticker symbol if you want a different benchmark.
+    benchmark_symbol = '^GSPC'  # S&P 500 as the benchmark index
+
+    # Fetch historical prices for the benchmark index if needed
+    # benchmark_data = yf.download(benchmark_symbol, start=start_date, end=end_date)['Adj Close']
+    
+    # For a hard-coded S&P 500 index, we can directly use the S&P 500 ETF (SPDR S&P 500 ETF Trust, ticker: SPY) as a proxy.
+    # The SPY ETF closely tracks the performance of the S&P 500 index.
+    benchmark_data = yf.download(benchmark_symbol, start=start_date, end=end_date)['Adj Close']
+
+    # Calculate the daily returns of the asset and the benchmark index
+    asset_returns = (high_prices - low_prices) / low_prices
+    benchmark_returns = (benchmark_data - benchmark_data.shift(1)) / benchmark_data.shift(1)
+
+    # Remove any NaN values
+    asset_returns = asset_returns.dropna()
+    benchmark_returns = benchmark_returns.dropna()
+
+    # Calculate the covariance matrix and the variance of the benchmark returns
+    covariance_matrix = np.cov(asset_returns, benchmark_returns)
+    benchmark_variance = np.var(benchmark_returns)
+
+    # Calculate beta as the covariance between asset returns and benchmark returns
+    # divided by the variance of benchmark returns
+    beta = covariance_matrix[0, 1] / benchmark_variance
+
+    return beta
+
+def append_vix_beta(df):
+
+    end_date = df.index[-1] + pd.Timedelta(days=1)
+    start_date = df.index[0]
+    
+    # Convert dates to strings in the 'YYYY-MM-DD' format
+    start_date_str = start_date.strftime('%Y-%m-%d')
+    end_date_str = end_date.strftime('%Y-%m-%d')
+    
+    # Fetch VIX data from Yahoo Finance
+    vix_data = yf.download('^VIX', start=start_date_str, end=end_date_str)
+    sp500_data = yf.download('^GSPC', start=start_date_str, end=end_date_str)
+    
+    # Extract VIX values from the 'Close' column
+    vix_values = vix_data['Close']
+    sp500_values = sp500_data['Close']
+    
+    df['VIX'] = vix_values
+    df['sp500'] = sp500_values
+
+    rolling_cov = df['close'].rolling(window=2).cov(df['sp500'])
+    rolling_var = df['sp500'].rolling(window=2).var()
+    df['beta'] = (rolling_cov / rolling_var).abs()
+    
+
+    # adjust predicted high and lows based on VIX `vix_values`
+    
+    df['predicted_low_adjusted'] = np.random.normal(loc=df['predicted_low'], scale=df['predicted_low'] * df['beta'])
+    df['predicted_high_adjusted'] = np.random.normal(loc=df['predicted_high'], scale=df['predicted_high'] * df['beta'])
+
+    # pct diff
+    pct_diff_low = ((df['predicted_low_adjusted'] - df['low']) / df['low'])
+    pct_diff_high = ((df['predicted_high_adjusted'] - df['high']) / df['high'])
+    pct_diff = (abs(pct_diff_high) + abs(pct_diff_low)) / 2
+    df['avg_pct_diff_adjusted'] = pct_diff * 100
+
+    df = df[['VIX', 'beta', 'low', 'predicted_low_adjusted', 'high', 'predicted_high_adjusted', 'avg_pct_diff_adjusted', 'directional_accuracy']]
+
+    df[['predicted_low_adjusted', 'predicted_high_adjusted']] = df[['predicted_low_adjusted', 'predicted_high_adjusted']].agg([min, max], axis=1)
+
+    return df.iloc[1:]
+
+
+def adjust_pred_table(df):
+    low_adjustments = np.random.normal(loc=df['predicted_low'], scale=df['predicted_low'] * 0.01)
+    high_adjustments = np.random.normal(loc=df['predicted_high'], scale=df['predicted_high'] * 0.01)
+    
+    # Clip 'low' price adjustments to ensure it's always lower than or equal to 'high' price adjustments
+    low_adjusted = np.clip(low_adjustments, a_min=None, a_max=high_adjustments)
+    
+    # Adjust 'low_adjusted' and 'high_adjustments' if they are identical
+    mask = low_adjusted == high_adjustments
+    low_adjusted[mask] -= 0.001  # Randomly decrease low_adjusted by a small amount
+    high_adjustments[mask] += 0.001  # Randomly increase high_adjustments by a small amount
+    
+    # Set the adjusted prices in the DataFrame
+    df['predicted_low_adjusted'] = low_adjusted
+    df['predicted_high_adjusted'] = high_adjustments
+
+    # reduce variation
+    smoothing_factor = 0.1
+    mean_val = (df["predicted_low_adjusted"] + df["predicted_high_adjusted"]) / 2
+    diff = (df["predicted_high_adjusted"] - df["predicted_low_adjusted"]) * smoothing_factor
+    df["predicted_high_adjusted"] = mean_val + diff
+    df["predicted_low_adjusted"] = mean_val - diff
+
+    return df
