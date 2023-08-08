@@ -66,7 +66,11 @@ def show_main_page():
 
         next_three_business_days, lows_list, highs_list = predict(end_date, predicted_low, predicted_high)
 
-        pred_df = get_pred_table(next_three_business_days, lows_list, highs_list)
+        last_low = float(group_df.iloc[-1].low)
+        last_high = float(group_df.iloc[-1].high)
+
+        pred_df = get_pred_table(next_three_business_days, lows_list, highs_list, last_low, last_high)
+
 
         st.title("Price Prediction Table")
         st.write("Predicted price ranges for the next 3 trading days.")
@@ -79,7 +83,7 @@ def show_main_page():
             - Optimization Algorithm: `adam`
             - Loss Metric: `mean squared error`
         """)
-    
+        
         st.write(pred_df)
         
         # upload
@@ -153,10 +157,10 @@ def show_main_page_indicators():
 
         group_df = group_df.round(2)
         group_df = group_df.applymap(remove_trailing_zeroes)
-        group_df = group_df.iloc[1:]
+        group_df_adjusted = group_df.iloc[1:]
 
 
-        st.table(group_df)
+        st.table(group_df_adjusted)
 
         st.write(" - Added Indicators:")
 
@@ -166,7 +170,10 @@ def show_main_page_indicators():
 
         next_three_business_days, lows_list, highs_list = predict(end_date, predicted_low, predicted_high)
 
-        pred_df = get_pred_table(next_three_business_days, lows_list, highs_list)
+        last_low = float(group_df_adjusted.iloc[-1].low)
+        last_high = float(group_df_adjusted.iloc[-1].high)
+
+        pred_df = get_pred_table(next_three_business_days, lows_list, highs_list, last_low, last_high)
 
         pred_df_adjusted = adjust_pred_table(pred_df)
 
@@ -189,28 +196,74 @@ def show_main_page_indicators():
         time_t = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
         path = f"{'myawsbucket-st'}/'streamlit_uploads'/{time_t}"
 
-        with s3.open(f"{path}_{ticker}_lookback.csv", 'wb') as f:
-            group_df.to_csv(f)
-        with s3.open(f"{path}_{ticker}_predictions.csv", 'wb') as f:
-            pred_df.to_csv(f)
+        with s3.open(f"{path}_indicators_{ticker}_lookback.csv", 'wb') as f:
+            group_df_adjusted.to_csv(f)
+        with s3.open(f"{path}_indicators_{ticker}_predictions.csv", 'wb') as f:
+            pred_df_adjusted.to_csv(f)
         
 
 def show_report_page():
     conn = st.experimental_connection('s3', type=FilesConnection)
     s3_files = conn.fs.ls(f"{'myawsbucket-st'}/'streamlit_uploads'/", refresh=True)
-    s3_file_names = filter_and_reformat_data(s3_files)
 
-    selected_file_name = st.radio("Select a file:", s3_file_names)
+    s3_tickers, s3_file_names = filter_and_reformat_data(s3_files)
 
-    if selected_file_name:
-        # get the table from s3
-        s_ticker, s_date, s_status = selected_file_name.split(" ")
-        s_ticker = s_ticker.lower()
-        s_status = s_status.lower()
-        s_date = s_date.replace("/", "")
-        s_file = find_files_with_substrings(s3_files, [s_ticker, s_date, s_status])
+    option = st.selectbox("Select a ticker:", sorted(s3_tickers))
 
-        # display table
-        df = conn.read(s_file, input_format="csv", ttl=600)
-        df = df.rename({'Unnamed: 0': 'date'}, axis=1)
-        st.write(df)
+    if option:
+        selected = [s for s in s3_file_names if option in s]
+        selected_report = st.radio('Select a report: ', selected)
+
+        if selected_report:
+            # get the table from s3
+
+            splitted_names = selected_report.split(" ")
+            if len(splitted_names) == 4:
+                s_ticker, s_date, s_status, s_ind = splitted_names
+            else:
+                s_ticker, s_date, s_status = splitted_names
+                s_ind = ''
+
+            s_ticker = s_ticker.lower()
+            s_status = s_status.lower()
+            s_ind = s_ind.lower()
+            s_date = s_date.replace("/", "")
+
+            if s_ind == '':
+                s_file = find_files_with_substrings(s3_files, [s_ticker, s_date, s_status, s_ind])
+            else:
+                s_file = find_files_with_substrings(s3_files, [s_ticker, s_date, s_status])
+
+            
+            # display table
+            try:
+                df = conn.read(s_file, input_format="csv", ttl=600)
+                df = df.rename({'Unnamed: 0': 'date'}, axis=1)
+                df = df.round(2)
+                st.write(df)
+            
+                if 'predictions' in s_file:
+
+                    get_performance_button = st.button(label='Get Performance')
+
+                    last_report_date = datetime.datetime.strptime(df.date.iloc[-1], '%Y-%m-%d') + timedelta(days=1)
+                    
+                    today_date = datetime.datetime.today()
+
+                    business_days_diff = np.busday_count(last_report_date.date(), today_date.date())
+
+                    perf_days_check = business_days_diff >= 1
+                    
+                    if get_performance_button:
+
+                        if perf_days_check==0:
+
+                            st.write('Please wait 1 trading day after the last predicted day of the report to track performance.')
+
+                        else:
+                            
+                            perf_df = get_perf_df(df, s_ticker)
+                            st.write(perf_df)
+
+            except AttributeError:
+                st.write('File not found.')

@@ -2,6 +2,8 @@ import numpy as np
 import urllib.request
 import json
 import random
+import time
+import datetime
 from datetime import date, timedelta
 import pandas as pd
 import streamlit as st
@@ -196,7 +198,7 @@ def predict(end_date, predicted_low, predicted_high):
 
     return next_three_business_days, lows_list, highs_list
 
-def get_pred_table(next_three_business_days, lows_list, highs_list):
+def get_pred_table(next_three_business_days, lows_list, highs_list, last_low, last_high):
     percentage_deviation = 0.15  # 5% deviation
 
     # Create empty lists to store the prices
@@ -231,7 +233,7 @@ def get_pred_table(next_three_business_days, lows_list, highs_list):
     # Create the DataFrame with date as the index and multiple low and high prices
     res = pd.DataFrame({
         'predicted_low': predicted_lows,
-        'predicted_high': predicted_highs
+        'predicted_high': predicted_highs,
     }, index=dates)
 
     # Switching the 4th row to the 2nd row
@@ -259,42 +261,87 @@ def get_pred_table(next_three_business_days, lows_list, highs_list):
 
     pred_df_filled[['predicted_low', 'predicted_high']] = pred_df_filled[['predicted_low', 'predicted_high']].round(2)
 
+    # predicted directional column
+    if 'predicted_low_adjusted' in pred_df_filled:
+        pred_low_col = 'predicted_low_adjusted'
+        pred_high_col = 'predicted_high_adjusted'
+    else:
+        pred_low_col = 'predicted_low'
+        pred_high_col = 'predicted_high'
+
+    pred_df_filled['rolling_avg_low'] = pred_df_filled[pred_low_col].rolling(window=3, min_periods=1).mean()
+    pred_df_filled['rolling_avg_high'] = pred_df_filled[pred_high_col].rolling(window=3, min_periods=1).mean()
+
+    # Fill in the predicted_low_direction column
+    pred_df_filled['predicted_low_direction'] = pred_df_filled.apply(lambda row: 'Increase' if (row[pred_low_col] > row['rolling_avg_low'] or last_low > row['rolling_avg_low']) else 'Decrease', axis=1)
+
+    # Fill in the predicted_high_direction column
+    pred_df_filled['predicted_high_direction'] = pred_df_filled.apply(lambda row: 'Increase' if (row[pred_high_col] > row['rolling_avg_high'] or last_high > row['rolling_avg_high']) else 'Decrease', axis=1)
+
+    # Invert the directions for the first date
+    pred_df_filled.iloc[0, pred_df_filled.columns.get_loc('predicted_low_direction')] = 'Increase' if pred_df_filled.iloc[0][pred_low_col] > last_low else 'Decrease'
+    pred_df_filled.iloc[0, pred_df_filled.columns.get_loc('predicted_high_direction')] = 'Increase' if pred_df_filled.iloc[0][pred_high_col] > last_high else 'Decrease'
+
+    pred_df_filled['predicted_low_direction'][1:3] = pred_df_filled['predicted_low_direction'][0]
+    pred_df_filled['predicted_high_direction'][1:3] = pred_df_filled['predicted_high_direction'][0]
+
+    # Drop the rolling average columns if you don't need them anymore
+    pred_df_filled.drop(['rolling_avg_low', 'rolling_avg_high'], axis=1, inplace=True)
+
+    pred_df_filled['variance'] = [1, 2, 3, 1, 2, 3, 1, 2, 3]
+
     return pred_df_filled
 
+
 def filter_and_reformat_data(data):
-    ticker_times = defaultdict(list)
+    ticker_times_ind = defaultdict(list)
     
     # Step 1: Extract the unique date entries and their corresponding latest times for each ticker.
+    
     for item in data:
+        if 'indicators' in item: # indicator
+            _ind = 'indicator'
+        else:
+            _ind = ''
+
         parts = item.split("_")
-        if len(parts) < 4:
-            continue
 
         ticker = parts[-2]
         _date = parts[1].split('/')[1]
         _time = parts[2]
-        date_time = (_date, _time)
-        ticker_times[ticker].append(date_time)
+        date_time_ind = (_date, _time, _ind)
+        ticker_times_ind[ticker].append(date_time_ind)
 
     # Step 2: Filter the list to only include the latest time entries for each unique date and ticker.
     filtered_data = []
-    for ticker, date_times in ticker_times.items():
-        latest_time = max(date_times, key=lambda x: x[1])
-        filtered_data.extend([f"myawsbucket-st/'streamlit_uploads'/{latest_time[0]}_{latest_time[1]}_{ticker}_lookback.csv",
-                              f"myawsbucket-st/'streamlit_uploads'/{latest_time[0]}_{latest_time[1]}_{ticker}_predictions.csv"])
+    for ticker, date_times_ind in ticker_times_ind.items():
+
+        latest_time = max(date_times_ind, key=lambda x: x[0]+x[1])
+        
+        if latest_time[-1] == '': # not indicator
+            filtered_data.extend([f"myawsbucket-st/'streamlit_uploads'/{latest_time[0]}_{latest_time[1]}_{ticker}_lookback.csv",
+            f"myawsbucket-st/'streamlit_uploads'/{latest_time[0]}_{latest_time[1]}_{ticker}_predictions.csv"])
+        else: # indicator
+            filtered_data.extend([f"myawsbucket-st/'streamlit_uploads'/{latest_time[0]}_{latest_time[1]}_indicators_{ticker}_lookback.csv",
+            f"myawsbucket-st/'streamlit_uploads'/{latest_time[0]}_{latest_time[1]}_indicators_{ticker}_predictions.csv"])
 
     # Step 3: Reformat the remaining entries.
+    tickers = []
     reformatted_data = []
     for item in filtered_data:
         parts = item.split("_")
-        if len(parts) < 4:
-            continue
-
         ticker = parts[-2]
         date = parts[1].split('/')[1]
-        reformatted_data.append(f"{ticker.upper()} 2023/{date[4:6]}/{date[6:8]} {('Lookback' if 'lookback' in item else 'Predictions')}")
+        if 'indicators' in parts[-3]:
+            print_name = f"{ticker.upper()} {date[0:4]}/{date[4:6]}/{date[6:8]} {('Lookback Indicators' if 'lookback' in item else 'Predictions Indicators')}"
+        else:
+            print_name = f"{ticker.upper()} {date[0:4]}/{date[4:6]}/{date[6:8]} {('Lookback' if 'lookback' in item else 'Predictions')}"
+        tickers.append(ticker.upper())
+        reformatted_data.append(print_name)
 
-    return reformatted_data
+    tickers = set(tickers)
+
+    return tickers, reformatted_data
 
 def find_files_with_substrings(file_list, substrings):
     matched_files = []
@@ -378,7 +425,6 @@ def append_vix_beta(df):
 
     return df
 
-
 def adjust_pred_table(df):
     low_adjustments = np.random.normal(loc=df['predicted_low'], scale=df['predicted_low'] * 0.01)
     high_adjustments = np.random.normal(loc=df['predicted_high'], scale=df['predicted_high'] * 0.01)
@@ -404,6 +450,11 @@ def adjust_pred_table(df):
 
     df[['predicted_low', 'predicted_high', 'predicted_low_adjusted', 'predicted_high_adjusted']] = df[['predicted_low', 'predicted_high', 'predicted_low_adjusted', 'predicted_high_adjusted']].round(2)
 
+   
+    df = df[['predicted_low', 'predicted_high', 'predicted_low_adjusted', 'predicted_high_adjusted', 'predicted_low_direction', 'predicted_high_direction']]
+
+    df['variance'] = [1, 2, 3, 1, 2, 3, 1, 2, 3]
+
     return df
 
 def remove_trailing_zeroes(val):
@@ -411,7 +462,53 @@ def remove_trailing_zeroes(val):
         return '{:.2f}'.format(val).rstrip('0').rstrip('.')
     return val
 
-# def remove_trailing_zeroes(val, column_name):
-#     if column_name == 'beta' or not isinstance(val, float):
-#         return val
-#     return '{:.2f}'.format(val).rstrip('0').rstrip('.')
+def get_perf_df(df, ticker):
+
+    start_date = df.date.iloc[0]
+    start_date = datetime.datetime.strptime(start_date, '%Y-%m-%d')
+    start_date_utc = time.mktime(start_date.timetuple())
+    end_date = df.date.iloc[-1]
+    end_date = datetime.datetime.strptime(end_date, '%Y-%m-%d') + timedelta(days=1)
+    end_date_utc = time.mktime(end_date.timetuple())
+
+    eod_df = get_dataframe(ticker, start_date_utc, end_date_utc)
+
+    eod_df = eod_df[['low', 'high']]
+
+    eod_df.index = pd.to_datetime(eod_df.index)
+    grouped_df = eod_df.groupby(eod_df.index.date).apply(lambda x: x.loc[x['low'].idxmin()])
+
+    grouped_df = grouped_df.reset_index().rename({'index': 'date', 'high': 'actual_high', 'low': 'actual_low'}, axis=1)
+
+    # Convert 'date' columns to datetime
+    df['date'] = pd.to_datetime(df['date'])
+    grouped_df['date'] = pd.to_datetime(grouped_df['date'])
+
+    # Merge the DataFrames on 'date'
+    merged_df = pd.merge(grouped_df, df, on='date', how='left')
+
+    merged_df = merged_df.round(2)
+
+    merged_df['date'] = pd.to_datetime(merged_df['date']).dt.date
+
+    # not adjusted
+    # adjusted
+
+
+    if 'predicted_low_adjusted' in merged_df:
+        pred_low_col = 'predicted_low_adjusted'
+        pred_high_col = 'predicted_high_adjusted'
+    else:
+        pred_low_col = 'predicted_low'
+        pred_high_col = 'predicted_high'
+   
+    # avg pct diff
+    pct_diff_low = ((merged_df[pred_low_col] - merged_df['actual_low']) / merged_df['actual_low'])
+    pct_diff_high = ((merged_df[pred_high_col] - merged_df['actual_high']) / merged_df['actual_high'])
+
+    pct_diff = (abs(pct_diff_high) + abs(pct_diff_low)) / 2
+
+    merged_df['avg_pct_diff'] = pct_diff * 100
+    merged_df['avg_pct_diff'] = merged_df['avg_pct_diff'].round(2)
+
+    return merged_df
