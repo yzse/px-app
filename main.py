@@ -30,27 +30,51 @@ def show_main_page():
         eod_data_df = get_dataframe(ticker, start_date_utc, end_date_utc)
         low_high_df = eod_data_df.filter(['low', 'high', 'close'])
 
-        # model
-        model, scaled_data_low, scaled_data_high, x_train_low, y_train_low, x_test_low, y_test_low, x_train_high, y_train_high, x_test_high, y_test_high = initiate_model(low_high_df)
+        # atr dataframe
+        atr_df = get_atr_dataframe(low_high_df)
 
-        ############################## models ##############################
+        ############################## low/high model ##############################
+
+        # initiate model
+        model, scaled_data_low, scaled_data_high, x_train_low, y_train_low, x_test_low, x_train_high, y_train_high, x_test_high = initiate_model(low_high_df)
 
         train_size = int(len(scaled_data_low) * 0.8)
         time_steps = 1
-        
+
+        # low & high prediction
         predictions_low_arr, predicted_low = run_model(model, low_high_df, train_size, time_steps, scaled_data_low, x_test_low, x_train_low, y_train_low, 'predictions_low')
 
         predictions_high_arr, predicted_high = run_model(model, low_high_df, train_size, time_steps, scaled_data_high, x_test_high, x_train_high, y_train_high, 'predictions_high')
 
         valid = low_high_df[train_size:-1]
+
         valid['predictions_low'] = predictions_low_arr
         valid['predictions_high'] = predictions_high_arr
 
+        ############################### ATR model ##############################
+        # atr needs high, low, and close --> low_high_df
+        
+        model_atr, scaled_data_atr, x_train_atr, y_train_atr, x_test_atr = initiate_model_atr(atr_df)
+
+        train_size_atr = int(len(scaled_data_atr) * 0.8)
+
+        # atr prediction
+        predictions_atr_arr, predicted_atr = run_model_atr(model_atr, atr_df, train_size_atr, time_steps, x_test_atr, x_train_atr, y_train_atr, 'predictions_atr') 
+
+        # st.write(predictions_atr_arr[:5])
+        
+        valid['predictions_atr'] = predictions_atr_arr # this is empty?
+
+        ############################### results dataframe ##############################
+
         group_df = get_grouped_df(valid)
+
+        # non-indicator adjustments for group_df
         group_df = group_df.tail(21)
         group_df = group_df.round(2)
         group_df = group_df.applymap(remove_trailing_zeroes)
         group_df = group_df.drop(['close'], axis=1)
+        group_df = group_df.drop(['predicted_atr'], axis=1)
 
         
         st.title("Historical Prices Table")
@@ -60,21 +84,24 @@ def show_main_page():
 
         st.write(" - `directional_accuracy` examines whether the predicted price movement matches the actual price movement. It indicates whether the direction of the predicted movement aligns with the direction of the actual movement.")
 
+
         st.table(group_df)
 
         ############################# results ###############################
 
-        next_three_business_days, lows_list, highs_list = predict(end_date, predicted_low, predicted_high)
+        next_three_business_days, lows_list, highs_list, atr_list = predict(end_date, predicted_low, predicted_high, predicted_atr)
 
         last_low = float(group_df.iloc[-1].low)
         last_high = float(group_df.iloc[-1].high)
-
-        pred_df = get_pred_table(next_three_business_days, lows_list, highs_list, last_low, last_high)
+        
+        pred_df = get_pred_table(next_three_business_days, lows_list, highs_list, atr_list, last_low, last_high)
 
 
         st.title("Price Prediction Table")
         st.write("Predicted price ranges for the next 3 trading days.")
         st.write(" - The model used here is the Long Short-Term Memory (LSTM) model. It is a  neural network architecture used for time series forecasting. It leverages historical price data to capture complex patterns and dependencies over time. By processing sequential data, LSTM models can learn from the historical price movements of stocks, identifying trends and patterns that may impact future prices.")
+        st.write(" - `predicted_atr` represents the average of true ranges over the specified period with a focus on daily measurements. This metric captures volatility by accounting for any gaps in price movement on a daily basis. `ATR = (ATR_previous * (n - 1) + TR_current`")
+        st.write(" - For each day of prediction, the model provides a predicted low price, a predicted high price, and a predicted average true range (atr); along with a list of predicted variances.  3 of the variances are selected and applied to the final predicted output.")
         st.markdown("""
         - Model Parameters:
             - Model: `LSTM`   
@@ -118,31 +145,54 @@ def show_main_page_indicators():
         eod_data_df = get_dataframe(ticker, start_date_utc, end_date_utc)
         low_high_df = eod_data_df.filter(['low', 'high', 'close'])
 
-        # model
-        model, scaled_data_low, scaled_data_high, x_train_low, y_train_low, x_test_low, y_test_low, x_train_high, y_train_high, x_test_high, y_test_high = initiate_model(low_high_df)
+        # atr dataframe
+        atr_df = get_atr_dataframe(low_high_df)
 
-        ############################## models ##############################
+
+        ############################## low/high model ##############################
+        
+        # initiate model
+        model, scaled_data_low, scaled_data_high, x_train_low, y_train_low, x_test_low, x_train_high, y_train_high, x_test_high = initiate_model(low_high_df)
 
         train_size = int(len(scaled_data_low) * 0.8)
         time_steps = 1
 
+        # low & high prediction
         predictions_low_arr, predicted_low = run_model(model, low_high_df, train_size, time_steps, scaled_data_low, x_test_low, x_train_low, y_train_low, 'predictions_low')
 
         predictions_high_arr, predicted_high = run_model(model, low_high_df, train_size, time_steps, scaled_data_high, x_test_high, x_train_high, y_train_high, 'predictions_high')
 
         valid = low_high_df[train_size:-1]
+
         valid['predictions_low'] = predictions_low_arr
         valid['predictions_high'] = predictions_high_arr
 
+        ############################### ATR model ##############################
+        # atr needs high, low, and close --> low_high_df
+        
+        model_atr, scaled_data_atr, x_train_atr, y_train_atr, x_test_atr = initiate_model_atr(atr_df)
+
+        train_size_atr = int(len(scaled_data_atr) * 0.8)
+
+        # atr prediction
+        predictions_atr_arr, predicted_atr = run_model_atr(model_atr, atr_df, train_size_atr, time_steps, x_test_atr, x_train_atr, y_train_atr, 'predictions_atr') 
+
+        
+        valid['predictions_atr'] = predictions_atr_arr 
+
+        ############################### results dataframe ##############################
+
         group_df = get_grouped_df(valid)
-        group_df = group_df.tail(7) #21
 
-        ##### Vix: pull in vix from last 7 days
-        ##### if Vix high -> increase volatility in prediction
-        ##### if Vix low -> leave as is
+        # indicator adjustments for group_df
+        group_df = group_df.tail(7)
+
+        # vix
         indicator_df = append_vix_beta(group_df)
+        indicator_df = adjust_indicator_table(indicator_df)
+        indicator_df = indicator_df.round(2)
 
-        group_df = group_df[['low', 'predicted_low','high',	'predicted_high','avg_pct_diff','directional_accuracy']]
+        group_df = group_df[['low', 'predicted_low','high',	'predicted_high', 'predicted_atr', 'pct_diff_low', 'pct_diff_high', 'predicted_low_direction', 'predicted_high_direction','directional_accuracy']]
 
         st.title("Indicators")
         st.write(" - VIX: Cboe Volatility Index")
@@ -168,18 +218,19 @@ def show_main_page_indicators():
 
         ############################# results ###############################
 
-        next_three_business_days, lows_list, highs_list = predict(end_date, predicted_low, predicted_high)
+        next_three_business_days, lows_list, highs_list, atr_list = predict(end_date, predicted_low, predicted_high, predicted_atr)
 
         last_low = float(group_df_adjusted.iloc[-1].low)
         last_high = float(group_df_adjusted.iloc[-1].high)
 
-        pred_df = get_pred_table(next_three_business_days, lows_list, highs_list, last_low, last_high)
+        pred_df = get_pred_table(next_three_business_days, lows_list, highs_list, atr_list, last_low, last_high)
 
         pred_df_adjusted = adjust_pred_table(pred_df)
 
         st.title("Price Prediction Table with Indicators")
         st.write("Predicted price ranges for the next 3 trading days.")
         st.write(" - The model used here is similar to the previous application. The difference here is that this model takes into account the VIX and stock beta, the modified predicted prices are reflected in the `_adjusted` columns.")
+        st.write(" - For each day of prediction, the model provides a predicted low price and a predicted high price, along with a list of predicted variances.  3 of the variances are selected and applied to the final predicted output.")
         st.markdown("""
         - Model Parameters:
             - Model: `LSTM`   
