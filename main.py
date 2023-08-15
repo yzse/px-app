@@ -230,6 +230,7 @@ def show_main_page_indicators():
         st.title("Price Prediction Table with Indicators")
         st.write("Predicted price ranges for the next 3 trading days.")
         st.write(" - The model used here is similar to the previous application. The difference here is that this model takes into account the VIX and stock beta, the modified predicted prices are reflected in the `_adjusted` columns.")
+        st.write(" - `predicted_atr` represents the average of true ranges over the specified period with a focus on daily measurements. This metric captures volatility by accounting for any gaps in price movement on a daily basis. `ATR = (ATR_previous * (n - 1) + TR_current`")
         st.write(" - For each day of prediction, the model provides a predicted low price and a predicted high price, along with a list of predicted variances.  3 of the variances are selected and applied to the final predicted output.")
         st.markdown("""
         - Model Parameters:
