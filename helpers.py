@@ -44,6 +44,18 @@ def prepare_data(data, time_steps=1):
         y.append(data[i + time_steps, 0])
     return np.array(X), np.array(y)
 
+def crypto_date_filter(low_high_df):
+
+    business_days = low_high_df[low_high_df.index.weekday < 5]  # Select rows for Monday (0) to Friday (4)
+    selected_hours = business_days.between_time('00:00:00', '20:00:00', include_end=False).iloc[::2]
+
+    # Use iloc to select every other row (4-hour interval)
+    # filtered_df = selected_hours.iloc[::2]
+
+    filtered_df = low_high_df.loc[selected_hours.index]
+
+    return filtered_df
+
 def get_atr_dataframe(low_high_df):
     # get atr first
     low_high_df['true_range'] = low_high_df['high'] - low_high_df['low']
@@ -62,7 +74,7 @@ def get_atr_dataframe(low_high_df):
     return low_high_df
 
 
-def initiate_model(low_high_df):
+def initiate_model(ticker, low_high_df):
     # model
     low_prices = low_high_df['low'].values.reshape(-1, 1)
     high_prices = low_high_df['high'].values.reshape(-1, 1)
@@ -93,16 +105,25 @@ def initiate_model(low_high_df):
     x_test_high = np.reshape(x_test_high, (x_test_high.shape[0], x_test_high.shape[1], 1))
 
     # Build the LSTM model
-    model = Sequential()
-    model.add(LSTM(128, return_sequences=True, input_shape=(x_train_low.shape[1], 1)))
-    model.add(LSTM(64, return_sequences=False))
-    model.add(Dense(25))
-    model.add(Dense(1))
-    model.compile(optimizer='adam', loss='mean_squared_error')
+    if ticker.endswith('.cc'):
+        model = Sequential()
+        model.add(LSTM(128, return_sequences=True, input_shape=(x_train_low.shape[1], 1), activation='tanh'))
+        model.add(LSTM(64, return_sequences=False, activation='tanh'))
+        model.add(Dense(25, activation='tanh'))
+        model.add(Dense(1, activation='linear'))
+        model.compile(optimizer='rmsprop', loss='mean_squared_error')
+
+    else:
+        model = Sequential()
+        model.add(LSTM(128, return_sequences=True, input_shape=(x_train_low.shape[1], 1)))
+        model.add(LSTM(64, return_sequences=False))
+        model.add(Dense(25))
+        model.add(Dense(1))
+        model.compile(optimizer='adam', loss='mean_squared_error')
 
     return model, scaled_data_low, scaled_data_high, x_train_low, y_train_low, x_test_low, x_train_high, y_train_high, x_test_high
 
-def initiate_model_atr(low_high_df):
+def initiate_model_atr(ticker, low_high_df):
 
     # model for atr
     atr_ranges = low_high_df['atr'].values.reshape(-1, 1)
@@ -124,13 +145,22 @@ def initiate_model_atr(low_high_df):
     x_train_atr = np.reshape(x_train_atr, (x_train_atr.shape[0], x_train_atr.shape[1], 1))
     x_test_atr = np.reshape(x_test_atr, (x_test_atr.shape[0], x_test_atr.shape[1], 1))
 
-    # Build the LSTM model
-    model_atr = Sequential()
-    model_atr.add(LSTM(128, return_sequences=True, input_shape=(x_train_atr.shape[1], 1)))
-    model_atr.add(LSTM(64, return_sequences=False))
-    model_atr.add(Dense(25))
-    model_atr.add(Dense(1))
-    model_atr.compile(optimizer='adam', loss='mean_squared_error')
+    if ticker.endswith('.cc'):
+        model_atr = Sequential()
+        model_atr.add(LSTM(128, return_sequences=True, input_shape=(x_train_atr.shape[1], 1), activation='tanh'))
+        model_atr.add(LSTM(64, return_sequences=False, activation='tanh'))
+        model_atr.add(Dense(25, activation='tanh'))
+        model_atr.add(Dense(1, activation='linear'))
+        model_atr.compile(optimizer='rmsprop', loss='mean_squared_error')
+
+    else:
+        # Build the LSTM model
+        model_atr = Sequential()
+        model_atr.add(LSTM(128, return_sequences=True, input_shape=(x_train_atr.shape[1], 1)))
+        model_atr.add(LSTM(64, return_sequences=False))
+        model_atr.add(Dense(25))
+        model_atr.add(Dense(1))
+        model_atr.compile(optimizer='adam', loss='mean_squared_error')
 
     return model_atr, scaled_data_atr, x_train_atr, y_train_atr, x_test_atr
 
@@ -177,29 +207,34 @@ def run_model(_model, low_high_df, train_size, time_steps, scaled_data, x_test, 
     # Reshape predictions to match the expected input of inverse_transform
     predictions_list = np.reshape(predictions_list, (len(predictions_list), 1))
 
+
+
     # Inverse transform the predicted prices
-    predicted = scaler.inverse_transform(predictions_list)
+    # predicted = scaler.inverse_transform(predictions_list)
 
-    if col_name=='predictions_low':
-        last_price = low_high_df['low'].iloc[-1]
-    elif col_name=='predictions_high':
-        last_price = low_high_df['high'].iloc[-1]
+    # if col_name=='predictions_low':
+    #     last_price = low_high_df['low'].iloc[-1]
+    # elif col_name=='predictions_high':
+    #     last_price = low_high_df['high'].iloc[-1]
 
-    lower_threshold = last_price * (1 - tolerance_percentage / 100.0)
-    upper_threshold = last_price * (1 + tolerance_percentage / 100.0)
+    # lower_threshold = last_price * (1 - tolerance_percentage / 100.0)
+    # upper_threshold = last_price * (1 + tolerance_percentage / 100.0)
 
-    num_samples = 21
+    # num_samples = 21
 
-    # erratic factor to control randomness
-    erratic_factor = 1 
+    # # erratic factor to control randomness
+    # erratic_factor = 1 
 
-    predicted_clipped = np.where(np.logical_or(predicted < lower_threshold, predicted > upper_threshold),
-                                    np.random.uniform(lower_threshold, upper_threshold, size=num_samples),
-                                    predicted)
+    # predicted_clipped = np.where(np.logical_or(predicted < lower_threshold, predicted > upper_threshold),
+    #                                 np.random.uniform(lower_threshold, upper_threshold, size=num_samples),
+    #                                 predicted)
 
-    erratic_noise = np.random.uniform(-erratic_factor, erratic_factor, size=num_samples)
-    predicted_clipped = predicted_clipped + erratic_noise
-    predicted = predicted_clipped[-1]
+    # erratic_noise = np.random.uniform(-erratic_factor, erratic_factor, size=num_samples)
+    # predicted_clipped = predicted_clipped + erratic_noise
+    # predicted = predicted_clipped[-1]
+
+    np.random.seed(1)
+    predicted = np.random.choice(predictions_list.flatten(), size=(21, 1), replace=False).reshape(-1)
 
     return predictions, predicted
 
@@ -327,6 +362,29 @@ def predict(end_date, predicted_low, predicted_high, predicted_atr):
 
     return next_three_business_days, lows_list, highs_list, atr_list
 
+def check_and_adjust(row):
+    if round(row['predicted_low'], 1) == round(row['predicted_high'], 1):
+        # Generate a random adjustment percentage between 7% and 10%
+        adjustment_percentage_high = np.random.uniform(0.07, 0.10)
+        row['predicted_high'] *= (1 + adjustment_percentage_high)
+        
+        # Generate a random adjustment percentage between -4% and +4%
+        adjustment_percentage_low = np.random.uniform(-0.03, 0.03)
+        row['predicted_low'] *= (1 + adjustment_percentage_low)
+    return row
+
+
+def vertical_variation(row):
+     # Generate a random adjustment between -2% and +2% for 'predicted_low'
+    adjustment_low = np.random.uniform(-0.02, 0.02)
+    row['predicted_low'] *= (1 + adjustment_low)
+    
+    # Generate a random adjustment between 5% and 7% for 'predicted_high'
+    adjustment_high = np.random.uniform(0.05, 0.07)
+    row['predicted_high'] *= (1 + adjustment_high)
+    
+    return row
+
 def get_pred_table(next_three_business_days, lows_list, highs_list, atr_list, last_low, last_high):
     pct_dev = 0.15  # 15% deviation
 
@@ -369,6 +427,15 @@ def get_pred_table(next_three_business_days, lows_list, highs_list, atr_list, la
             predicted_highs.append(new_high)
             predicted_atrs.append(new_atr)
 
+
+    # check variation
+    threshold = 9
+    pct_dev_low = [(pl - last_low) / last_low * 100 for pl in predicted_lows]
+    pct_dev_high = [(ph - last_high) / last_high * 100 for ph in predicted_highs]
+    predicted_lows = [pl if abs(pd) <= threshold else last_low * (1 + threshold / 100) for pl, pd in zip(predicted_lows, pct_dev_low)]
+    predicted_highs = [ph if abs(pd) <= threshold else last_high * (1 + threshold / 100) for ph, pd in zip(predicted_highs, pct_dev_high)]
+
+
     # dataframe with predicted prices
     res = pd.DataFrame({
         'predicted_low': predicted_lows,
@@ -382,8 +449,13 @@ def get_pred_table(next_three_business_days, lows_list, highs_list, atr_list, la
     res.iloc[[3, 7]] = res.iloc[[7, 3]]
     res.iloc[[4, 8]] = res.iloc[[8, 4]]
 
-    mask = res['predicted_low'] == res['predicted_high']
-    deviations = pd.Series([0.1, 0.2, 0.3])
+    # if pred_low price == pred_high price
+    mask = res['predicted_low'].round(1) == res['predicted_high'].round(1)
+
+    # Compute the random deviations based on 5% of 'predicted_high'
+    deviations = res.loc[mask, 'predicted_high'] * np.random.uniform(-0.25, 0.25, size=mask.sum())
+
+    # Add the random deviations to 'predicted_high' for rows where the mask is True
     res.loc[mask, 'predicted_high'] += deviations
 
     # check NaNs
@@ -399,8 +471,16 @@ def get_pred_table(next_three_business_days, lows_list, highs_list, atr_list, la
     pred_df_filled["predicted_high"] = mean_val + diff
     pred_df_filled["predicted_low"] = mean_val - diff
 
-    pred_df_filled[['predicted_low', 'predicted_high']] = pred_df_filled[['predicted_low', 'predicted_high']].round(2)
+    if pred_df_filled['predicted_low'].mean() < 1:
+        pred_df_filled[['predicted_low', 'predicted_high']] = pred_df_filled[['predicted_low', 'predicted_high']].round(4)
+    else:
+        pred_df_filled[['predicted_low', 'predicted_high']] = pred_df_filled[['predicted_low', 'predicted_high']].round(2)
 
+
+    pred_df_filled = pred_df_filled.apply(check_and_adjust, axis=1)
+    pred_df_filled = pred_df_filled.apply(vertical_variation, axis=1)
+
+    
     # predicted directional column
     if 'predicted_low_adjusted' in pred_df_filled:
         pred_low_col = 'predicted_low_adjusted'
@@ -430,7 +510,11 @@ def get_pred_table(next_three_business_days, lows_list, highs_list, atr_list, la
 
     pred_df_filled['variance'] = [1, 2, 3, 1, 2, 3, 1, 2, 3]
 
-    pred_df_filled['predicted_atr'] = pred_df_filled['predicted_atr'].round(2)
+    if pred_df_filled['predicted_atr'].mean() < 1:
+        pred_df_filled['predicted_atr'] = pred_df_filled['predicted_atr'].round(4)
+    else:
+        pred_df_filled['predicted_atr'] = pred_df_filled['predicted_atr'].round(2)
+    
 
     return pred_df_filled
 
@@ -560,7 +644,7 @@ def append_vix_beta(df):
 
     df = df.iloc[1:]
 
-    df = df.round(2)
+    # df = df.round(2)
 
     df = df.applymap(remove_trailing_zeroes)
 
@@ -627,7 +711,11 @@ def adjust_pred_table(df):
     df["predicted_high_adjusted"] = mean_val + diff
     df["predicted_low_adjusted"] = mean_val - diff
 
-    df[['predicted_low_adjusted', 'predicted_high_adjusted', 'predicted_atr_adjusted']] = df[['predicted_low_adjusted', 'predicted_high_adjusted', 'predicted_atr_adjusted']].round(2)
+    if df['predicted_low_adjusted'].mean() < 1:
+        df[['predicted_low_adjusted', 'predicted_high_adjusted', 'predicted_atr_adjusted']] = df[['predicted_low_adjusted', 'predicted_high_adjusted', 'predicted_atr_adjusted']].round(4)
+    else:
+        df[['predicted_low_adjusted', 'predicted_high_adjusted', 'predicted_atr_adjusted']] = df[['predicted_low_adjusted', 'predicted_high_adjusted', 'predicted_atr_adjusted']].round(2)
+    
 
     df = df[['predicted_low_adjusted', 'predicted_high_adjusted', 'predicted_atr_adjusted', 'predicted_low_direction', 'predicted_high_direction']]
 
@@ -665,7 +753,7 @@ def get_perf_df(df, ticker):
     # Merge the DataFrames on 'date'
     merged_df = pd.merge(grouped_df, df, on='date', how='left')
 
-    merged_df = merged_df.round(2)
+    # merged_df = merged_df.round(2)
 
     merged_df['date'] = pd.to_datetime(merged_df['date']).dt.date
 

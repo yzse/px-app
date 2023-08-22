@@ -9,6 +9,12 @@ from helpers import *
 pd.set_option('mode.chained_assignment', None)
 pd.set_option('display.float_format', '{:.2f}'.format)
 
+# set seeds
+os.environ['PYTHONHASHSEED']=str(1)
+tf.random.set_seed(1)
+np.random.seed(1)
+random.seed(1)
+
 def show_main_page():
 
     st.title("Stock Price Prediction for Highs & Lows")
@@ -23,12 +29,18 @@ def show_main_page():
         # dates
         end_date = datetime.date.today()
         end_date_utc = time.mktime(end_date.timetuple())
-        start_date = end_date - timedelta(days=365)
+        if ticker.endswith('.cc'):
+            start_date = end_date - timedelta(days=90)
+        else:
+            start_date = end_date - timedelta(days=365)
         start_date_utc = time.mktime(start_date.timetuple())
 
         # dataframe
         eod_data_df = get_dataframe(ticker, start_date_utc, end_date_utc)
         low_high_df = eod_data_df.filter(['low', 'high', 'close'])
+
+        if ticker.endswith('.cc'):
+            low_high_df = crypto_date_filter(low_high_df)
 
         # atr dataframe
         atr_df = get_atr_dataframe(low_high_df)
@@ -36,13 +48,16 @@ def show_main_page():
         ############################## low/high model ##############################
 
         # initiate model
-        model, scaled_data_low, scaled_data_high, x_train_low, y_train_low, x_test_low, x_train_high, y_train_high, x_test_high = initiate_model(low_high_df)
+        model, scaled_data_low, scaled_data_high, x_train_low, y_train_low, x_test_low, x_train_high, y_train_high, x_test_high = initiate_model(ticker, low_high_df)
 
         train_size = int(len(scaled_data_low) * 0.8)
         time_steps = 1
 
         # low & high prediction
+        # predictions_ : 
+        # predicted_ : 
         predictions_low_arr, predicted_low = run_model(model, low_high_df, train_size, time_steps, scaled_data_low, x_test_low, x_train_low, y_train_low, 'predictions_low')
+        
 
         predictions_high_arr, predicted_high = run_model(model, low_high_df, train_size, time_steps, scaled_data_high, x_test_high, x_train_high, y_train_high, 'predictions_high')
 
@@ -54,16 +69,14 @@ def show_main_page():
         ############################### ATR model ##############################
         # atr needs high, low, and close --> low_high_df
         
-        model_atr, scaled_data_atr, x_train_atr, y_train_atr, x_test_atr = initiate_model_atr(atr_df)
+        model_atr, scaled_data_atr, x_train_atr, y_train_atr, x_test_atr = initiate_model_atr(ticker, atr_df)
 
         train_size_atr = int(len(scaled_data_atr) * 0.8)
 
         # atr prediction
         predictions_atr_arr, predicted_atr = run_model_atr(model_atr, atr_df, train_size_atr, time_steps, x_test_atr, x_train_atr, y_train_atr, 'predictions_atr') 
-
-        # st.write(predictions_atr_arr[:5])
         
-        valid['predictions_atr'] = predictions_atr_arr # this is empty?
+        valid['predictions_atr'] = predictions_atr_arr
 
         ############################### results dataframe ##############################
 
@@ -71,7 +84,12 @@ def show_main_page():
 
         # non-indicator adjustments for group_df
         group_df = group_df.tail(21)
-        group_df = group_df.round(2)
+
+        if group_df['low'].mean() < 1:
+            group_df = group_df.round(4)
+        else:
+            group_df = group_df.round(2)
+
         group_df = group_df.applymap(remove_trailing_zeroes)
         group_df = group_df.drop(['close'], axis=1)
         group_df = group_df.drop(['predicted_atr'], axis=1)
@@ -93,9 +111,8 @@ def show_main_page():
 
         last_low = float(group_df.iloc[-1].low)
         last_high = float(group_df.iloc[-1].high)
-        
-        pred_df = get_pred_table(next_three_business_days, lows_list, highs_list, atr_list, last_low, last_high)
 
+        pred_df = get_pred_table(next_three_business_days, lows_list, highs_list, atr_list, last_low, last_high)
 
         st.title("Price Prediction Table")
         st.write("Predicted price ranges for the next 3 trading days.")
@@ -138,12 +155,18 @@ def show_main_page_indicators():
         # dates
         end_date = datetime.date.today()
         end_date_utc = time.mktime(end_date.timetuple())
-        start_date = end_date - timedelta(days=365)
+        if ticker.endswith('.cc'):
+            start_date = end_date - timedelta(days=90)
+        else:
+            start_date = end_date - timedelta(days=365)
         start_date_utc = time.mktime(start_date.timetuple())
 
         # dataframe
         eod_data_df = get_dataframe(ticker, start_date_utc, end_date_utc)
         low_high_df = eod_data_df.filter(['low', 'high', 'close'])
+
+        if ticker.endswith('.cc'):
+            low_high_df = crypto_date_filter(low_high_df)
 
         # atr dataframe
         atr_df = get_atr_dataframe(low_high_df)
@@ -152,7 +175,7 @@ def show_main_page_indicators():
         ############################## low/high model ##############################
         
         # initiate model
-        model, scaled_data_low, scaled_data_high, x_train_low, y_train_low, x_test_low, x_train_high, y_train_high, x_test_high = initiate_model(low_high_df)
+        model, scaled_data_low, scaled_data_high, x_train_low, y_train_low, x_test_low, x_train_high, y_train_high, x_test_high = initiate_model(ticker, low_high_df)
 
         train_size = int(len(scaled_data_low) * 0.8)
         time_steps = 1
@@ -170,7 +193,7 @@ def show_main_page_indicators():
         ############################### ATR model ##############################
         # atr needs high, low, and close --> low_high_df
         
-        model_atr, scaled_data_atr, x_train_atr, y_train_atr, x_test_atr = initiate_model_atr(atr_df)
+        model_atr, scaled_data_atr, x_train_atr, y_train_atr, x_test_atr = initiate_model_atr(ticker, atr_df)
 
         train_size_atr = int(len(scaled_data_atr) * 0.8)
 
@@ -190,7 +213,13 @@ def show_main_page_indicators():
         # vix
         indicator_df = append_vix_beta(group_df)
         indicator_df = adjust_indicator_table(indicator_df)
-        indicator_df = indicator_df.round(2)
+        indicator_df['predicted_high_adjusted'] = pd.to_numeric(indicator_df['predicted_high_adjusted'], errors='coerce')
+
+
+        if indicator_df['predicted_high_adjusted'].mean() < 1:
+            indicator_df = indicator_df.round(4)
+        else:
+            indicator_df = indicator_df.round(2)
 
         group_df = group_df[['low', 'predicted_low','high',	'predicted_high', 'predicted_atr', 'pct_diff_low', 'pct_diff_high', 'predicted_low_direction', 'predicted_high_direction','directional_accuracy']]
 
@@ -205,10 +234,10 @@ def show_main_page_indicators():
 
         st.write(" - `Stock Beta:` quantifies a stock's volatility compared to the market, with values over 1.0 indicating greater volatility. The higher the stock beta, the more volatile the predicted price movement will be. Here, the beta is benchmarked against the S&P500.")
 
-        group_df = group_df.round(2)
+
         group_df = group_df.applymap(remove_trailing_zeroes)
         group_df_adjusted = group_df.iloc[1:]
-
+        group_df_adjusted.drop(['predicted_atr'], axis=1, inplace=True)
 
         st.table(group_df_adjusted)
 
@@ -291,7 +320,6 @@ def show_report_page():
             try:
                 df = conn.read(s_file, input_format="csv", ttl=600)
                 df = df.rename({'Unnamed: 0': 'date'}, axis=1)
-                df = df.round(2)
                 st.write(df)
             
                 if 'predictions' in s_file:
