@@ -207,34 +207,32 @@ def run_model(_model, low_high_df, train_size, time_steps, scaled_data, x_test, 
     # Reshape predictions to match the expected input of inverse_transform
     predictions_list = np.reshape(predictions_list, (len(predictions_list), 1))
 
-
-
     # Inverse transform the predicted prices
-    # predicted = scaler.inverse_transform(predictions_list)
+    predicted = scaler.inverse_transform(predictions_list)
 
-    # if col_name=='predictions_low':
-    #     last_price = low_high_df['low'].iloc[-1]
-    # elif col_name=='predictions_high':
-    #     last_price = low_high_df['high'].iloc[-1]
+    if col_name=='predictions_low':
+        last_price = low_high_df['low'].iloc[-1]
+    elif col_name=='predictions_high':
+        last_price = low_high_df['high'].iloc[-1]
 
-    # lower_threshold = last_price * (1 - tolerance_percentage / 100.0)
-    # upper_threshold = last_price * (1 + tolerance_percentage / 100.0)
+    lower_threshold = last_price * (1 - tolerance_percentage / 100.0)
+    upper_threshold = last_price * (1 + tolerance_percentage / 100.0)
 
-    # num_samples = 21
+    num_samples = 21
 
-    # # erratic factor to control randomness
-    # erratic_factor = 1 
+    # erratic factor to control randomness
+    erratic_factor = 1 
 
-    # predicted_clipped = np.where(np.logical_or(predicted < lower_threshold, predicted > upper_threshold),
-    #                                 np.random.uniform(lower_threshold, upper_threshold, size=num_samples),
-    #                                 predicted)
+    predicted_clipped = np.where(np.logical_or(predicted < lower_threshold, predicted > upper_threshold),
+                                    np.random.uniform(lower_threshold, upper_threshold, size=num_samples),
+                                    predicted)
 
-    # erratic_noise = np.random.uniform(-erratic_factor, erratic_factor, size=num_samples)
-    # predicted_clipped = predicted_clipped + erratic_noise
-    # predicted = predicted_clipped[-1]
+    erratic_noise = np.random.uniform(-erratic_factor, erratic_factor, size=num_samples)
+    predicted_clipped = predicted_clipped + erratic_noise
+    predicted = predicted_clipped[-1]
 
-    np.random.seed(1)
-    predicted = np.random.choice(predictions_list.flatten(), size=(21, 1), replace=False).reshape(-1)
+    # np.random.seed(1)
+    # predicted = np.random.choice(predictions_list.flatten(), size=(21, 1), replace=False).reshape(-1)
 
     return predictions, predicted
 
@@ -362,28 +360,28 @@ def predict(end_date, predicted_low, predicted_high, predicted_atr):
 
     return next_three_business_days, lows_list, highs_list, atr_list
 
-def check_and_adjust(row):
-    if round(row['predicted_low'], 1) == round(row['predicted_high'], 1):
-        # Generate a random adjustment percentage between 7% and 10%
-        adjustment_percentage_high = np.random.uniform(0.07, 0.10)
-        row['predicted_high'] *= (1 + adjustment_percentage_high)
+# def check_and_adjust(row):
+#     if round(row['predicted_low'], 1) == round(row['predicted_high'], 1):
+#         # Generate a random adjustment percentage between 7% and 10%
+#         adjustment_percentage_high = np.random.uniform(0.07, 0.10)
+#         row['predicted_high'] *= (1 + adjustment_percentage_high)
         
-        # Generate a random adjustment percentage between -4% and +4%
-        adjustment_percentage_low = np.random.uniform(-0.03, 0.03)
-        row['predicted_low'] *= (1 + adjustment_percentage_low)
-    return row
+#         # Generate a random adjustment percentage between -4% and +4%
+#         adjustment_percentage_low = np.random.uniform(-0.03, 0.03)
+#         row['predicted_low'] *= (1 + adjustment_percentage_low)
+#     return row
 
 
-def vertical_variation(row):
-     # Generate a random adjustment between -2% and +2% for 'predicted_low'
-    adjustment_low = np.random.uniform(-0.02, 0.02)
-    row['predicted_low'] *= (1 + adjustment_low)
+# def vertical_variation(row):
+#      # Generate a random adjustment between -2% and +2% for 'predicted_low'
+#     adjustment_low = np.random.uniform(-0.02, 0.02)
+#     row['predicted_low'] *= (1 + adjustment_low)
     
-    # Generate a random adjustment between 5% and 7% for 'predicted_high'
-    adjustment_high = np.random.uniform(0.05, 0.07)
-    row['predicted_high'] *= (1 + adjustment_high)
+#     # Generate a random adjustment between 5% and 7% for 'predicted_high'
+#     adjustment_high = np.random.uniform(0.05, 0.07)
+#     row['predicted_high'] *= (1 + adjustment_high)
     
-    return row
+#     return row
 
 def get_pred_table(next_three_business_days, lows_list, highs_list, atr_list, last_low, last_high):
     pct_dev = 0.15  # 15% deviation
@@ -477,10 +475,11 @@ def get_pred_table(next_three_business_days, lows_list, highs_list, atr_list, la
         pred_df_filled[['predicted_low', 'predicted_high']] = pred_df_filled[['predicted_low', 'predicted_high']].round(2)
 
 
-    pred_df_filled = pred_df_filled.apply(check_and_adjust, axis=1)
-    pred_df_filled = pred_df_filled.apply(vertical_variation, axis=1)
+    # pred_df_filled = pred_df_filled.apply(check_and_adjust, axis=1)
+    # pred_df_filled = pred_df_filled.apply(vertical_variation, axis=1)
 
     
+
     # predicted directional column
     if 'predicted_low_adjusted' in pred_df_filled:
         pred_low_col = 'predicted_low_adjusted'

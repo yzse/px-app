@@ -54,8 +54,6 @@ def show_main_page():
         time_steps = 1
 
         # low & high prediction
-        # predictions_ : 
-        # predicted_ : 
         predictions_low_arr, predicted_low = run_model(model, low_high_df, train_size, time_steps, scaled_data_low, x_test_low, x_train_low, y_train_low, 'predictions_low')
         
 
