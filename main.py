@@ -25,7 +25,6 @@ def show_main_page():
         submit_button = st.form_submit_button(label='Submit')
 
     if submit_button:
-
         # dates
         end_date = datetime.date.today()
         end_date_utc = time.mktime(end_date.timetuple())
@@ -37,14 +36,14 @@ def show_main_page():
 
         # dataframe
         eod_data_df = get_dataframe(ticker, start_date_utc, end_date_utc)
-        low_high_df = eod_data_df.filter(['low', 'high', 'close'])
+        low_high_df = eod_data_df.filter(['open', 'low', 'high', 'close', 'volume'])
+        
+        # chart
+        load_chart(low_high_df, ticker)
 
         if ticker.endswith('.cc'):
             low_high_df = crypto_date_filter(low_high_df)
-
-        # atr dataframe
-        atr_df = get_atr_dataframe(low_high_df)
-
+            
         ############################## low/high model ##############################
 
         # initiate model
@@ -64,18 +63,6 @@ def show_main_page():
         valid['predictions_low'] = predictions_low_arr
         valid['predictions_high'] = predictions_high_arr
 
-        ############################### ATR model ##############################
-        # atr needs high, low, and close --> low_high_df
-        
-        model_atr, scaled_data_atr, x_train_atr, y_train_atr, x_test_atr = initiate_model_atr(ticker, atr_df)
-
-        train_size_atr = int(len(scaled_data_atr) * 0.8)
-
-        # atr prediction
-        predictions_atr_arr, predicted_atr = run_model_atr(model_atr, atr_df, train_size_atr, time_steps, x_test_atr, x_train_atr, y_train_atr, 'predictions_atr') 
-        
-        valid['predictions_atr'] = predictions_atr_arr
-
         ############################### results dataframe ##############################
 
         group_df = get_grouped_df(valid)
@@ -89,9 +76,6 @@ def show_main_page():
             group_df = group_df.round(2)
 
         group_df = group_df.applymap(remove_trailing_zeroes)
-        group_df = group_df.drop(['close'], axis=1)
-        group_df = group_df.drop(['predicted_atr'], axis=1)
-
         
         st.title("Historical Prices Table")
         st.write("Predicted & actual prices for the past 30 days, based on prices from the last 365 days.")
@@ -101,16 +85,18 @@ def show_main_page():
         st.write(" - `directional_accuracy` examines whether the predicted price movement matches the actual price movement. It indicates whether the direction of the predicted movement aligns with the direction of the actual movement.")
 
 
-        st.table(group_df)
+        st.dataframe(group_df)
+
 
         ############################# results ###############################
 
-        next_three_business_days, lows_list, highs_list, atr_list = predict(end_date, predicted_low, predicted_high, predicted_atr)
+        next_three_business_days, lows_list, highs_list = predict(end_date, predicted_low, predicted_high)
 
         last_low = float(group_df.iloc[-1].low)
         last_high = float(group_df.iloc[-1].high)
+        last_close = float(group_df.iloc[-1].close)
 
-        pred_df = get_pred_table(next_three_business_days, lows_list, highs_list, atr_list, last_low, last_high)
+        pred_df = get_pred_table(next_three_business_days, lows_list, highs_list, last_low, last_high, last_close)
 
         st.title("Price Prediction Table")
         st.write("Predicted price ranges for the next 3 trading days.")
@@ -126,7 +112,7 @@ def show_main_page():
             - Loss Metric: `mean squared error`
         """)
         
-        st.write(pred_df)
+        st.dataframe(pred_df)
         
         # upload
         s3 = s3fs.S3FileSystem(anon=False)
@@ -161,14 +147,13 @@ def show_main_page_indicators():
 
         # dataframe
         eod_data_df = get_dataframe(ticker, start_date_utc, end_date_utc)
-        low_high_df = eod_data_df.filter(['low', 'high', 'close'])
+        low_high_df = eod_data_df.filter(['open', 'low', 'high', 'close', 'volume'])
+
+        # chart
+        load_chart(low_high_df, ticker)
 
         if ticker.endswith('.cc'):
             low_high_df = crypto_date_filter(low_high_df)
-
-        # atr dataframe
-        atr_df = get_atr_dataframe(low_high_df)
-
 
         ############################## low/high model ##############################
         
@@ -188,28 +173,18 @@ def show_main_page_indicators():
         valid['predictions_low'] = predictions_low_arr
         valid['predictions_high'] = predictions_high_arr
 
-        ############################### ATR model ##############################
-        # atr needs high, low, and close --> low_high_df
-        
-        model_atr, scaled_data_atr, x_train_atr, y_train_atr, x_test_atr = initiate_model_atr(ticker, atr_df)
-
-        train_size_atr = int(len(scaled_data_atr) * 0.8)
-
-        # atr prediction
-        predictions_atr_arr, predicted_atr = run_model_atr(model_atr, atr_df, train_size_atr, time_steps, x_test_atr, x_train_atr, y_train_atr, 'predictions_atr') 
-
-        
-        valid['predictions_atr'] = predictions_atr_arr 
-
         ############################### results dataframe ##############################
 
         group_df = get_grouped_df(valid)
 
+        # st.write(valid.columns)
+
         # indicator adjustments for group_df
         group_df = group_df.tail(7)
 
-        # vix
-        indicator_df = append_vix_beta(group_df)
+        # indicators
+        last_close = float(group_df.iloc[-1].close)
+        indicator_df = append_vix_beta(group_df, last_close)
         indicator_df = adjust_indicator_table(indicator_df)
         indicator_df['predicted_high_adjusted'] = pd.to_numeric(indicator_df['predicted_high_adjusted'], errors='coerce')
 
@@ -219,12 +194,8 @@ def show_main_page_indicators():
         else:
             indicator_df = indicator_df.round(2)
 
-        group_df = group_df[['low', 'predicted_low','high',	'predicted_high', 'predicted_atr', 'pct_diff_low', 'pct_diff_high', 'predicted_low_direction', 'predicted_high_direction','directional_accuracy']]
+        group_df = group_df[['low', 'predicted_low','high',	'predicted_high', 'pct_diff_low', 'pct_diff_high', 'predicted_low_direction', 'predicted_high_direction']]
 
-        st.title("Indicators")
-        st.write(" - VIX: Cboe Volatility Index")
-        st.write(" - Stock Beta: Volatility of selected stock")
-        
         st.title("Historical Prices Table with Indicators")
         st.write("Predicted & actual prices for the past 30 days, based on prices from the last 365 days, with added indicators.")
         
@@ -232,27 +203,30 @@ def show_main_page_indicators():
 
         st.write(" - `Stock Beta:` quantifies a stock's volatility compared to the market, with values over 1.0 indicating greater volatility. The higher the stock beta, the more volatile the predicted price movement will be. Here, the beta is benchmarked against the S&P500.")
 
+        st.write(" - `RSI:` measures the magnitude of recent price changes to evaluate overbought or oversold conditions in the price of a stock. RSI values range from 0 to 100. Traditionally, RSI values over 70 indicate overbought conditions, while values under 30 indicate oversold conditions.")
+
+        st.write(" - `MACD:` is a trend-following momentum indicator that shows the relationship between two moving averages of a stock's price. The MACD is calculated by subtracting the 26-period exponential moving average (EMA) from the 12-period EMA. A nine-day EMA of the MACD, called the signal line, is then plotted on top of the MACD, functioning as a trigger for buy and sell signals.")
+
+        st.write(" - `Bollinger Bands MAVG:`  consistings of a Moving Average (MAVG) within Bollinger Bands, used to gauge price volatility and identify potential reversals and breakouts. BB = MAVG ± (2 * SD), where SD = standard deviation of the MAVG.")
 
         group_df = group_df.applymap(remove_trailing_zeroes)
-        group_df_adjusted = group_df.iloc[1:]
-        group_df_adjusted.drop(['predicted_atr'], axis=1, inplace=True)
 
-        st.table(group_df_adjusted)
-
-        st.write(" - Added Indicators:")
-
-        st.table(indicator_df)
+        clean_indicator_df = indicator_df.drop(['close', 'open', 'volume', 'predicted_low_adjusted', 'predicted_high_adjusted', 'pct_diff_low_adjusted', 'pct_diff_high_adjusted', 'predicted_atr_adjusted'], axis=1)
+        
+        st.dataframe(clean_indicator_df)
 
         ############################# results ###############################
 
-        next_three_business_days, lows_list, highs_list, atr_list = predict(end_date, predicted_low, predicted_high, predicted_atr)
+        next_three_business_days, lows_list, highs_list = predict(end_date, predicted_low, predicted_high)
 
-        last_low = float(group_df_adjusted.iloc[-1].low)
-        last_high = float(group_df_adjusted.iloc[-1].high)
+        last_low = float(indicator_df.iloc[-1].low)
+        last_high = float(indicator_df.iloc[-1].high)
+        last_close = float(indicator_df.iloc[-1].close)
 
-        pred_df = get_pred_table(next_three_business_days, lows_list, highs_list, atr_list, last_low, last_high)
+        pred_df = get_pred_table(next_three_business_days, lows_list, highs_list, last_low, last_high, last_close)
 
         pred_df_adjusted = adjust_pred_table(pred_df)
+
 
         st.title("Price Prediction Table with Indicators")
         st.write("Predicted price ranges for the next 3 trading days.")
@@ -267,18 +241,37 @@ def show_main_page_indicators():
             - Optimization Algorithm: `adam`
             - Loss Metric: `mean squared error`
         """)
-    
-        st.write(pred_df_adjusted)
 
-        # upload
-        s3 = s3fs.S3FileSystem(anon=False)
-        time_t = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
-        path = f"{'myawsbucket-st'}/'streamlit_uploads'/{time_t}"
 
-        with s3.open(f"{path}_indicators_{ticker}_lookback.csv", 'wb') as f:
-            group_df_adjusted.to_csv(f)
-        with s3.open(f"{path}_indicators_{ticker}_predictions.csv", 'wb') as f:
-            pred_df_adjusted.to_csv(f)
+        # Initialize the session state
+        if 'indicators' not in st.session_state:
+            st.session_state.indicators = ['vix', 'beta', 'rsi_14', 'rsi_21', 'macd', 'bb_mavg']
+
+        # Display checkboxes for indicators and store their state in session_state
+        for i, indicator in enumerate(st.session_state.indicators):
+            st.session_state[indicator] = st.checkbox(label=f'{indicator}', key=i)
+
+        # Add run button
+        run_button = st.button(label='Run Model')
+
+        # Only run if at least one indicator is selected
+        if run_button:
+            # Create a list of selected indicators
+            selected_indicators = [indicator for indicator in st.session_state.indicators if st.session_state[indicator]]
+
+            if selected_indicators:
+                # Generate some example data (replace this with your actual data generation logic)
+
+                # Upload data to S3
+                s3 = s3fs.S3FileSystem(anon=False)
+                time_t = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
+                path = f"myawsbucket-st/streamlit_uploads/{time_t}"
+
+                with s3.open(f"{path}_indicators_{ticker}_lookback.csv", 'wb') as f:
+                    clean_indicator_df.to_csv(f)
+                with s3.open(f"{path}_indicators_{ticker}_predictions.csv", 'wb') as f:
+                    pred_df_adjusted.to_csv(f)
+
         
 
 def show_report_page():
@@ -318,7 +311,7 @@ def show_report_page():
             try:
                 df = conn.read(s_file, input_format="csv", ttl=600)
                 df = df.rename({'Unnamed: 0': 'date'}, axis=1)
-                st.write(df)
+                st.dataframe(df)
             
                 if 'predictions' in s_file:
 
@@ -341,7 +334,7 @@ def show_report_page():
                         else:
                             
                             perf_df = get_perf_df(df, s_ticker)
-                            st.write(perf_df)
+                            st.dataframe(perf_df)
 
             except AttributeError:
                 st.write('File not found.')
