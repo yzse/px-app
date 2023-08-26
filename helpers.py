@@ -200,7 +200,7 @@ def get_grouped_df(df): # turn predictions into table
     df.index = pd.to_datetime(df.index)
 
     # group and select minium lows
-    grouped_df = df.groupby(df.index.date).apply(lambda x: x.loc[x['low'].idxmin()])
+    grouped_df = df.groupby(df.index.date).apply(lambda x: x.iloc[-2])
 
     # swapping predicted low and high to ensure low is always the lowest
     grouped_df.loc[grouped_df['predictions_low'] > grouped_df['predictions_high'], ['predictions_low', 'predictions_high']] = grouped_df.loc[grouped_df['predictions_low'] > grouped_df['predictions_high'], ['predictions_high', 'predictions_low']].values
@@ -659,7 +659,7 @@ def get_perf_df(df, ticker):
     eod_df = eod_df[['low', 'high']]
 
     eod_df.index = pd.to_datetime(eod_df.index)
-    grouped_df = eod_df.groupby(eod_df.index.date).apply(lambda x: x.loc[x['low'].idxmin()])
+    grouped_df = eod_df.groupby(eod_df.index.date).apply(lambda x: x.iloc[-2])
 
     grouped_df = grouped_df.reset_index().rename({'index': 'date', 'high': 'actual_high', 'low': 'actual_low'}, axis=1)
 
