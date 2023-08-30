@@ -6,7 +6,6 @@ import random
 import time
 import datetime
 from datetime import date, timedelta
-import matplotlib.pyplot as plt
 import pandas as pd
 import streamlit as st
 from sklearn.preprocessing import MinMaxScaler

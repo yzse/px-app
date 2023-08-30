@@ -3,7 +3,6 @@ from st_files_connection import FilesConnection
 import time
 import datetime
 from datetime import date, timedelta
-import matplotlib.pyplot as plt
 import pandas as pd
 import s3fs
 from helpers import *
