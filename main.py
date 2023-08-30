@@ -7,7 +7,6 @@ import matplotlib.pyplot as plt
 import pandas as pd
 import s3fs
 from helpers import *
-import seaborn as sns
 pd.set_option('mode.chained_assignment', None)
 pd.set_option('display.float_format', '{:.2f}'.format)
 

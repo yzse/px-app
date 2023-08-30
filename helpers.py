@@ -15,7 +15,6 @@ from keras.models import Sequential
 from keras.layers import Dense, LSTM
 from sklearn.impute import KNNImputer
 from collections import defaultdict
-from scipy.stats import linregress
 import os
 os.environ['PYTHONHASHSEED']=str(1)
 import tensorflow as tf
