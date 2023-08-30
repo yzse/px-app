@@ -1,3 +1,4 @@
+from pstats import Stats
 import numpy as np
 import urllib.request
 import json
@@ -5,14 +6,16 @@ import random
 import time
 import datetime
 from datetime import date, timedelta
+import matplotlib.pyplot as plt
 import pandas as pd
 import streamlit as st
-# from pandas import json_normalize
 from sklearn.preprocessing import MinMaxScaler
+from sklearn.model_selection import train_test_split
 from keras.models import Sequential
 from keras.layers import Dense, LSTM
 from sklearn.impute import KNNImputer
 from collections import defaultdict
+from scipy.stats import linregress
 import os
 os.environ['PYTHONHASHSEED']=str(1)
 import tensorflow as tf
@@ -29,7 +32,7 @@ random.seed(1)
 EHD_API_KEY = st.secrets["EHD_API_KEY"]
 
 @st.cache_data(ttl=24*3600, max_entries=3)
-def get_dataframe(ticker, start_date_utc, end_date_utc):
+def get_dataframe_eod(ticker, start_date_utc, end_date_utc):
     url = 'https://eodhistoricaldata.com/api/intraday/{}?api_token={}&order=d&interval=1h&fmt=json&from={}&to={}'.format(ticker, EHD_API_KEY, start_date_utc, end_date_utc)
     response = urllib.request.urlopen(url)
     eod_data = json.loads(response.read())
@@ -38,12 +41,22 @@ def get_dataframe(ticker, start_date_utc, end_date_utc):
     eod_data_df.set_index('datetime', inplace=True)
     return eod_data_df
 
+@st.cache_data(ttl=24*3600, max_entries=3)
+def get_dataframe_yf(ticker, start_date, end_date):
+    df = yf.download(ticker, start=start_date, end=end_date)
+
+    # lowercase
+    df.index.names = ['datetime']
+    df.columns = [x.lower() for x in df.columns]
+
+    return df
+
 def load_chart(low_high_df, ticker):
     sma_df = low_high_df.copy()
     st.subheader('SMA Chart - ${}'.format(ticker.upper()))
+    sma_df['sma_5'] = sma_df['close'].rolling(window=5).mean()
     sma_df['sma_20'] = sma_df['close'].rolling(window=20).mean()
-    sma_df['sma_100'] = sma_df['close'].rolling(window=100).mean()
-    return st.line_chart(sma_df[['close', 'sma_20', 'sma_100']])
+    return st.line_chart(sma_df[['close', 'sma_5', 'sma_20']])
 
 def prepare_data(data, time_steps=1):
     X, y = [], []
@@ -54,7 +67,7 @@ def prepare_data(data, time_steps=1):
 
 def crypto_date_filter(low_high_df):
 
-    business_days = low_high_df[low_high_df.index.weekday < 5]  # Select rows for Monday (0) to Friday (4)
+    business_days = low_high_df[low_high_df.index.weekday < 5]  # select rows for Monday (0) to Friday (4)
     selected_hours = business_days.between_time('00:00:00', '20:00:00', include_end=False).iloc[::2]
 
     filtered_df = low_high_df.loc[selected_hours.index]
@@ -74,10 +87,21 @@ def get_atr_dataframe(low_high_df):
 
     low_high_df.drop(columns=['high_shifted', 'low_shifted', 'high_minus_close_shifted', 'low_minus_close_shifted'], inplace=True)
 
-    # Calculate Average True Range (ATR)
+    # calculate Average True Range (ATR)
     low_high_df['atr'] = low_high_df['true_range'].rolling(window=1).mean()
 
     return low_high_df
+
+def get_correlation_matrix(df):
+    df = df.apply(pd.to_numeric, errors='coerce')
+    correlation_matrix = df.corr()
+    corr = correlation_matrix[['low', 'high']]
+    corr = corr.drop(['open', 'low', 'high', 'close', 'volume'], axis=0)
+    # only drop 'date' if exists
+    if 'date' in corr.index:
+        corr = corr.drop(['date'], axis=0)
+    st.write(corr)
+    return None
 
 @st.cache_data(ttl=24*3600, max_entries=3)
 def initiate_model(ticker, low_high_df):
@@ -85,47 +109,36 @@ def initiate_model(ticker, low_high_df):
     low_prices = low_high_df['low'].values.reshape(-1, 1)
     high_prices = low_high_df['high'].values.reshape(-1, 1)
     
-    # Scale the data using MinMaxScaler
+    # scale data
     scaler = MinMaxScaler(feature_range=(0, 1))
     scaled_data_low = scaler.fit_transform(low_prices)
     scaled_data_high = scaler.fit_transform(high_prices)
 
-    # Split the data into training and testing sets
-    train_size = int(len(scaled_data_low) * 0.8)  # 80% for training, 20% for testing
-    train_data_low, test_data_low = scaled_data_low[:train_size], scaled_data_low[train_size:]
-    train_data_high, test_data_high = scaled_data_high[:train_size], scaled_data_high[train_size:]
+    # train test split
+    train_data_low, test_data_low, train_data_high, test_data_high = train_test_split(scaled_data_low, scaled_data_high, test_size=0.2, shuffle=False, random_state=1)
 
-    # Prepare the data for LSTM
-    time_steps = 1  # Number of previous time steps to use for prediction
+    # prepare the data for LSTM
+    time_steps = 1  # number of previous time steps to use for prediction
     x_train_low, y_train_low = prepare_data(train_data_low, time_steps)
     x_test_low, y_test_low = prepare_data(test_data_low, time_steps)
 
     x_train_high, y_train_high = prepare_data(train_data_high, time_steps)
     x_test_high, y_test_high = prepare_data(test_data_high, time_steps)
 
-    # Reshape the input data to fit the LSTM model input shape
+    # reshape the input data to fit the LSTM model input shape
     x_train_low = np.reshape(x_train_low, (x_train_low.shape[0], x_train_low.shape[1], 1))
     x_test_low = np.reshape(x_test_low, (x_test_low.shape[0], x_test_low.shape[1], 1))
 
     x_train_high = np.reshape(x_train_high, (x_train_high.shape[0], x_train_high.shape[1], 1))
     x_test_high = np.reshape(x_test_high, (x_test_high.shape[0], x_test_high.shape[1], 1))
 
-    # Build the LSTM model
-    if ticker.endswith('.cc'):
-        model = Sequential(name="lstm_model")
-        model.add(LSTM(128, return_sequences=True, input_shape=(x_train_low.shape[1], 1), activation='tanh', name="lstm_1"))
-        model.add(LSTM(64, return_sequences=False, activation='tanh', name="lstm_2"))
-        model.add(Dense(25, activation='tanh', name="dense_1"))
-        model.add(Dense(1, activation='linear', name="dense_2"))
-        model.compile(optimizer='rmsprop', loss='mean_squared_error')
-
-    else:
-        model = Sequential(name='lstm_model')
-        model.add(LSTM(128, return_sequences=True, input_shape=(x_train_low.shape[1], 1), name='lstm_1'))
-        model.add(LSTM(64, return_sequences=False, name='lstm_2'))
-        model.add(Dense(25, name='dense_1'))
-        model.add(Dense(1, name='dense_2'))
-        model.compile(optimizer='adam', loss='mean_squared_error')
+    # LSTM model
+    model = Sequential(name='lstm_model')
+    model.add(LSTM(128, return_sequences=True, input_shape=(x_train_low.shape[1], 1), name='lstm_1'))
+    model.add(LSTM(64, return_sequences=False, name='lstm_2'))
+    model.add(Dense(25, name='dense_1'))
+    model.add(Dense(1, name='dense_2'))
+    model.compile(optimizer='adam', loss='mean_squared_error')
 
     return model, scaled_data_low, scaled_data_high, x_train_low, y_train_low, x_test_low, x_train_high, y_train_high, x_test_high
 
@@ -140,9 +153,12 @@ def run_model(_model, low_high_df, train_size, time_steps, scaled_data, x_test, 
 
     if col_name=='predictions_low':
         scaled_data = scaler.fit_transform(low_prices)
+        last_price = low_high_df['low'].iloc[-1]
+        
     elif col_name=='predictions_high':
         scaled_data = scaler.fit_transform(high_prices)
-
+        last_price = low_high_df['high'].iloc[-1]
+        
     # predict
     predictions = _model.predict(x_test, verbose=0)
     predictions = scaler.inverse_transform(predictions)
@@ -171,25 +187,16 @@ def run_model(_model, low_high_df, train_size, time_steps, scaled_data, x_test, 
     # reshape predictions to match expected input of inverse_transform
     predictions_list = np.reshape(predictions_list, (len(predictions_list), 1))
     predicted = scaler.inverse_transform(predictions_list)
+    
+    lower_threshold = float(last_price) * (1 - float(tolerance_percentage) / 100.0)
+    upper_threshold = float(last_price) * (1 + float(tolerance_percentage) / 100.0)
 
-    if col_name=='predictions_low':
-        last_price = low_high_df['low'].iloc[-1]
-    elif col_name=='predictions_high':
-        last_price = low_high_df['high'].iloc[-1]
-
-    lower_threshold = last_price * (1 - tolerance_percentage / 100.0)
-    upper_threshold = last_price * (1 + tolerance_percentage / 100.0)
-
-    num_samples = 21
-
-    # erratic factor to control randomness
-    erratic_factor = 1 
-
+    # clip predictions to be within the tolerance range
     predicted_clipped = np.where(np.logical_or(predicted < lower_threshold, predicted > upper_threshold),
-                                    np.random.uniform(lower_threshold, upper_threshold, size=num_samples),
+                                    np.random.uniform(lower_threshold, upper_threshold, size=21),
                                     predicted)
 
-    erratic_noise = np.random.uniform(-erratic_factor, erratic_factor, size=num_samples)
+    erratic_noise = np.random.uniform(-1, 1, size=21)
     predicted_clipped = predicted_clipped + erratic_noise
     predicted = predicted_clipped[-1]
 
@@ -199,8 +206,13 @@ def run_model(_model, low_high_df, train_size, time_steps, scaled_data, x_test, 
 def get_grouped_df(df): # turn predictions into table
     df.index = pd.to_datetime(df.index)
 
-    # group and select minium lows
-    grouped_df = df.groupby(df.index.date).apply(lambda x: x.loc[x['low'].idxmin()])
+    # group and select minimum lows
+    df['low'] = pd.to_numeric(df['low'], errors='coerce')
+    df['high'] = pd.to_numeric(df['high'], errors='coerce')
+    df['date'] = df.index.date
+    grouped_df = df.groupby(df.index.date).apply(lambda x: x.iloc[-1])
+    # grouped_df = df.groupby(df.index.date)
+
 
     # swapping predicted low and high to ensure low is always the lowest
     grouped_df.loc[grouped_df['predictions_low'] > grouped_df['predictions_high'], ['predictions_low', 'predictions_high']] = grouped_df.loc[grouped_df['predictions_low'] > grouped_df['predictions_high'], ['predictions_high', 'predictions_low']].values
@@ -225,8 +237,9 @@ def get_grouped_df(df): # turn predictions into table
     grouped_df['predicted_high_direction'] = grouped_df['diff_high'].apply(lambda x: 'Increase' if x > 0 else 'Decrease')
     grouped_df.drop(columns=['diff_high'], inplace=True)
 
-    # reorder columns
-    grouped_df = grouped_df[['open', 'low', 'predictions_low', 'high', 'predictions_high', 'pct_diff_low', 'pct_diff_high', 'close', 'volume', 'predicted_low_direction', 'predicted_high_direction']]
+    # move columns
+    grouped_df.insert(2, "predictions_low", grouped_df.pop('predictions_low'))
+    grouped_df.insert(4, "predictions_high", grouped_df.pop('predictions_high'))
     
     # rename
     grouped_df = grouped_df.rename(columns={'predictions_low': 'predicted_low', 'predictions_high': 'predicted_high'})
@@ -238,7 +251,7 @@ def is_business_day(date_obj):
 
 @st.cache_data(ttl=24*3600, max_entries=3)
 def predict(end_date, predicted_low, predicted_high):
-    # Get the next three business days
+    # get the next three business days
     business_days_count = 0
     next_business_day = end_date + timedelta(days=1)
 
@@ -268,7 +281,6 @@ def get_pred_table(next_three_business_days, lows_list, highs_list, last_low, la
     dates = []
     predicted_lows = []
     predicted_highs = []
-    # predicted_atrs = []
 
     # Generate random prices for each date
     for i in range(len(next_three_business_days)):
@@ -307,7 +319,6 @@ def get_pred_table(next_three_business_days, lows_list, highs_list, last_low, la
     res = pd.DataFrame({
         'predicted_low': predicted_lows,
         'predicted_high': predicted_highs,
-        # 'predicted_atr': predicted_atrs,
     }, index=dates)
 
     # Switching the 4th row to the 2nd row
@@ -388,8 +399,8 @@ def get_pred_table(next_three_business_days, lows_list, highs_list, last_low, la
     pred_df_filled.loc[mask, 'predicted_low'] -= deviations
 
     # damping deviation
-    pred_df_filled['predicted_low'] = last_low + (pred_df_filled['predicted_low'] - last_low) * 0.2
-    pred_df_filled['predicted_high'] = last_high + (pred_df_filled['predicted_high'] - last_high) * 0.2
+    pred_df_filled['predicted_low'] = last_low + (pred_df_filled['predicted_low'] - last_low) * 0.15
+    pred_df_filled['predicted_high'] = last_high + (pred_df_filled['predicted_high'] - last_high) * 0.15
 
     # also round low and high
     if pred_df_filled['predicted_low'].mean() < 1:
@@ -424,16 +435,6 @@ def calculate_atr(row, pred_low_col, pred_high_col, last_close):
     tr = max(predicted_high - predicted_low, abs(predicted_high - last_close), abs(predicted_low - last_close))
     
     return tr
-
-def adjust_outliers(column, factor=1.5):
-    q1 = np.percentile(column, 2)
-    q3 = np.percentile(column, 8)
-    iqr = q3 - q1
-    lower_bound = q1 - factor * iqr
-    upper_bound = q3 + factor * iqr
-    column = np.where(column < lower_bound, lower_bound, column)
-    column = np.where(column > upper_bound, upper_bound, column)
-    return column
 
 def filter_and_reformat_data(data):
     ticker_times_ind = defaultdict(list)
@@ -485,6 +486,7 @@ def filter_and_reformat_data(data):
     return tickers, reformatted_data
 
 def find_files_with_substrings(file_list, substrings):
+    # find files with substrings in AWS
     matched_files = []
     for filename in file_list:
         if all(substring in filename for substring in substrings):
@@ -498,50 +500,31 @@ def find_files_with_substrings(file_list, substrings):
     return matched_files
 
 @st.cache_data(ttl=24*3600, max_entries=3)
-def calculate_stock_beta(low_prices, high_prices, start_date, end_date):
-    benchmark_symbol = '^GSPC'  # S&P 500 as the benchmark index
-    benchmark_data = yf.download(benchmark_symbol, start=start_date, end=end_date)['Adj Close']
+def append_indicators(df, start_date, end_date):
 
-    # Calculate the daily returns of the asset and the benchmark index
-    asset_returns = (high_prices - low_prices) / low_prices
-    benchmark_returns = (benchmark_data - benchmark_data.shift(1)) / benchmark_data.shift(1)
-
-    # Remove any NaN values
-    asset_returns = asset_returns.dropna()
-    benchmark_returns = benchmark_returns.dropna()
-
-    # Calculate the covariance matrix and the variance of the benchmark returns
-    covariance_matrix = np.cov(asset_returns, benchmark_returns)
-    benchmark_variance = np.var(benchmark_returns)
-    beta = covariance_matrix[0, 1] / benchmark_variance
-
-    return beta
-
-def append_vix_beta(df, last_close):
-    end_date = df.index[-1] + pd.Timedelta(days=1)
-    start_date = df.index[0]
-
-    # Convert dates to strings in the 'YYYY-MM-DD' format
+    # convert dates to strings
     start_date_str = start_date.strftime('%Y-%m-%d')
     end_date_str = end_date.strftime('%Y-%m-%d')
 
-    # Fetch VIX data from Yahoo Finance
+    # extract yf data
     vix_data = yf.download('^VIX', start=start_date_str, end=end_date_str)
     sp500_data = yf.download('^GSPC', start=start_date_str, end=end_date_str)
 
-    # Extract VIX values from the 'Close' column
+    # extend vix_data to df by date
+    vix_data = vix_data.reindex(df.index, method='ffill')
+    sp500_data = sp500_data.reindex(df.index, method='ffill')
     vix_values = vix_data['Close']
     sp500_values = sp500_data['Close']
-
     df['VIX'] = vix_values
     df['sp500'] = sp500_values
 
+    # beta
     rolling_cov = df['close'].rolling(window=2).cov(df['sp500'])
     rolling_var = df['sp500'].rolling(window=2).var()
     beta = (rolling_cov / rolling_var).abs()
     df['beta'] = beta
 
-    # Calculate RSI
+    # rsi
     df['rsi_14'] = ta.momentum.RSIIndicator(df['close'], window=14, fillna=True).rsi()
     df['rsi_21'] = ta.momentum.RSIIndicator(df['close'], window=21, fillna=True).rsi()
 
@@ -552,22 +535,8 @@ def append_vix_beta(df, last_close):
     indicator_bb = ta.volatility.BollingerBands(close=df["close"], window=20, window_dev=2, fillna=True)
     df['bb_mavg'] = indicator_bb.bollinger_mavg()
 
-    # Adjust predicted high and lows and atr based on VIX `vix_values`
-    df['predicted_low_adjusted'] = np.random.normal(loc=df['predicted_low'], scale=df['predicted_low'] * beta)
-    df['predicted_high_adjusted'] = np.random.normal(loc=df['predicted_high'], scale=df['predicted_high'] * beta)
-
-    # Calculate pct diff
-    pct_diff_low = ((df['predicted_low_adjusted'] - df['low']) / df['low'])
-    pct_diff_high = ((df['predicted_high_adjusted'] - df['high']) / df['high'])
-
-    df['pct_diff_low_adjusted'] = pct_diff_low * 100
-    df['pct_diff_high_adjusted'] = pct_diff_high * 100
-    df['predicted_atr_adjusted'] = df.apply(calculate_atr, axis=1, last_close=last_close, pred_low_col='predicted_low_adjusted', pred_high_col='predicted_high_adjusted')
-
-    df[['predicted_low_adjusted', 'predicted_high_adjusted']] = df[['predicted_low_adjusted', 'predicted_high_adjusted']].agg([min, max], axis=1)
-
+    # clean up
     df = df.iloc[1:]
-
     df = df.applymap(remove_trailing_zeroes)
 
     return df
@@ -579,6 +548,7 @@ def adjust_indicator_table(df):
 
     pct_diff_threshold = 12
 
+    # adjust predicted prices based on pct_diff_threshold
     df['predicted_low_adjusted'] = np.where(
         df['pct_diff_low_adjusted'] > pct_diff_threshold,
         df['predicted_low_adjusted'] * (1 + pct_diff_threshold / 100),
@@ -608,15 +578,15 @@ def adjust_pred_table(df):
     high_adjustments = np.random.normal(loc=df['predicted_high'], scale=df['predicted_high'] * 0.01)
     atr_adjustments = np.random.normal(loc=df['predicted_atr'], scale=df['predicted_atr'] * 0.01)
     
-    # Clip 'low' price adjustments to ensure it's always lower than or equal to 'high' price adjustments
+    # clip the adjustments to be within the tolerance range
     low_adjusted = np.clip(low_adjustments, a_min=None, a_max=high_adjustments)
     
-    # Adjust 'low_adjusted' and 'high_adjustments' if they are identical
+    # adjust 'low_adjusted' and 'high_adjustments' if they are identical
     mask = low_adjusted == high_adjustments
-    low_adjusted[mask] -= 0.001  # Randomly decrease low_adjusted by a small amount
-    high_adjustments[mask] += 0.001  # Randomly increase high_adjustments by a small amount
+    low_adjusted[mask] -= 0.001 
+    high_adjustments[mask] += 0.001 
     
-    # Set the adjusted prices in the DataFrame
+    # set adjusted prices in the DataFrame
     df['predicted_low_adjusted'] = low_adjusted
     df['predicted_high_adjusted'] = high_adjustments
     df['predicted_atr_adjusted'] = atr_adjustments
@@ -647,6 +617,7 @@ def remove_trailing_zeroes(val):
 
 def get_perf_df(df, ticker):
 
+    # convert 'date' columns to datetime
     start_date = df.date.iloc[0]
     start_date = datetime.datetime.strptime(start_date, '%Y-%m-%d')
     start_date_utc = time.mktime(start_date.timetuple())
@@ -654,24 +625,23 @@ def get_perf_df(df, ticker):
     end_date = datetime.datetime.strptime(end_date, '%Y-%m-%d') + timedelta(days=1)
     end_date_utc = time.mktime(end_date.timetuple())
 
-    eod_df = get_dataframe(ticker, start_date_utc, end_date_utc)
-
+    # get eod data
+    eod_df = get_dataframe_yf(ticker, start_date_utc, end_date_utc)
     eod_df = eod_df[['low', 'high']]
-
     eod_df.index = pd.to_datetime(eod_df.index)
-    grouped_df = eod_df.groupby(eod_df.index.date).apply(lambda x: x.loc[x['low'].idxmin()])
+    grouped_df = df.groupby(df.index.date).apply(lambda x: x.iloc[-1])
 
     grouped_df = grouped_df.reset_index().rename({'index': 'date', 'high': 'actual_high', 'low': 'actual_low'}, axis=1)
 
-    # Convert 'date' columns to datetime
+    # convert 'date' columns to datetime
     df['date'] = pd.to_datetime(df['date'])
     grouped_df['date'] = pd.to_datetime(grouped_df['date'])
 
-    # Merge the DataFrames on 'date'
+    # merge the DataFrames on 'date'
     merged_df = pd.merge(grouped_df, df, on='date', how='left')
-
     merged_df['date'] = pd.to_datetime(merged_df['date']).dt.date
 
+    # rename columns
     if 'predicted_low_adjusted' in merged_df:
         pred_low_col = 'predicted_low_adjusted'
         pred_high_col = 'predicted_high_adjusted'
@@ -682,7 +652,6 @@ def get_perf_df(df, ticker):
     # avg pct diff
     pct_diff_low = ((merged_df[pred_low_col] - merged_df['actual_low']) / merged_df['actual_low'])
     pct_diff_high = ((merged_df[pred_high_col] - merged_df['actual_high']) / merged_df['actual_high'])
-
     merged_df['pct_diff_low'] = pct_diff_low * 100
     merged_df['pct_diff_high'] = pct_diff_high * 100
 

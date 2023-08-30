@@ -7,5 +7,8 @@ streamlit
 s3fs==2023.6.0
 protobuf~=3.19.0
 yfinance==0.2.26
-ta==0.12.2
+scipy-stats
+ta
+boto3
+streamlit-shap @ git+https://github.com/snehankekre/streamlit-shap
 st-files-connection @ git+https://github.com/streamlit/files-connection@c65a9f0da856207086540baee3a36346bb39c0eb
