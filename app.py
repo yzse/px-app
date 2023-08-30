@@ -35,7 +35,6 @@ if check_password():
         "Application": show_main_page,
         "Application+": show_indicators,
         "Reports": show_report_page,
-        # "Test": test_indicators
     }
 
     demo_name = st.sidebar.selectbox("Choose a demo", page_names_to_funcs.keys())
