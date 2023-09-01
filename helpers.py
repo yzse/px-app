@@ -20,7 +20,7 @@ import tensorflow as tf
 import yfinance as yf
 import ta
 pd.set_option('mode.chained_assignment', None)
-pd.set_option('display.float_format', '{:.2f}'.format)
+# pd.set_option('display.float_format', '{:.4f}'.format)
 
 # set seeds
 os.environ['PYTHONHASHSEED']=str(1)
@@ -348,10 +348,10 @@ def get_pred_table(next_three_business_days, lows_list, highs_list, last_low, la
     pred_df_filled["predicted_low"] = mean_val - diff
 
     # adjust rounding based on mean
-    if pred_df_filled['predicted_low'].mean() < 1:
-        pred_df_filled[['predicted_low', 'predicted_high']] = pred_df_filled[['predicted_low', 'predicted_high']].round(4)
-    else:
-        pred_df_filled[['predicted_low', 'predicted_high']] = pred_df_filled[['predicted_low', 'predicted_high']].round(2)
+    # if pred_df_filled['predicted_low'].mean() < 1:
+    #     pred_df_filled[['predicted_low', 'predicted_high']] = pred_df_filled[['predicted_low', 'predicted_high']].round(4)
+    # else:
+    #     pred_df_filled[['predicted_low', 'predicted_high']] = pred_df_filled[['predicted_low', 'predicted_high']].round(2)
 
     # predicted directional column
     if 'predicted_low_adjusted' in pred_df_filled:
@@ -401,15 +401,15 @@ def get_pred_table(next_three_business_days, lows_list, highs_list, last_low, la
     pred_df_filled['predicted_high'] = last_high + (pred_df_filled['predicted_high'] - last_high) * 0.15
 
     # also round low and high
-    if pred_df_filled['predicted_low'].mean() < 1:
-        pred_df_filled['predicted_low'] = pred_df_filled['predicted_low'].round(4)
-    else:
-        pred_df_filled['predicted_low'] = pred_df_filled['predicted_low'].round(2)
+    # if pred_df_filled['predicted_low'].mean() < 1:
+    #     pred_df_filled['predicted_low'] = pred_df_filled['predicted_low'].round(4)
+    # else:
+    #     pred_df_filled['predicted_low'] = pred_df_filled['predicted_low'].round(2)
 
-    if pred_df_filled['predicted_high'].mean() < 1:
-        pred_df_filled['predicted_high'] = pred_df_filled['predicted_high'].round(4)
-    else:
-        pred_df_filled['predicted_high'] = pred_df_filled['predicted_high'].round(2)
+    # if pred_df_filled['predicted_high'].mean() < 1:
+    #     pred_df_filled['predicted_high'] = pred_df_filled['predicted_high'].round(4)
+    # else:
+    #     pred_df_filled['predicted_high'] = pred_df_filled['predicted_high'].round(2)
     
     # predicted_atr
     pred_df_filled['predicted_atr'] = pred_df_filled.apply(calculate_atr, axis=1, last_close=last_close, pred_low_col=pred_low_col, pred_high_col=pred_high_col)
@@ -596,10 +596,10 @@ def adjust_pred_table(df):
     df["predicted_high_adjusted"] = mean_val + diff
     df["predicted_low_adjusted"] = mean_val - diff
 
-    if df['predicted_low_adjusted'].mean() < 1:
-        df[['predicted_low_adjusted', 'predicted_high_adjusted', 'predicted_atr_adjusted']] = df[['predicted_low_adjusted', 'predicted_high_adjusted', 'predicted_atr_adjusted']].round(4)
-    else:
-        df[['predicted_low_adjusted', 'predicted_high_adjusted', 'predicted_atr_adjusted']] = df[['predicted_low_adjusted', 'predicted_high_adjusted', 'predicted_atr_adjusted']].round(2)
+    # if df['predicted_low_adjusted'].mean() < 1:
+    #     df[['predicted_low_adjusted', 'predicted_high_adjusted', 'predicted_atr_adjusted']] = df[['predicted_low_adjusted', 'predicted_high_adjusted', 'predicted_atr_adjusted']].round(4)
+    # else:
+    #     df[['predicted_low_adjusted', 'predicted_high_adjusted', 'predicted_atr_adjusted']] = df[['predicted_low_adjusted', 'predicted_high_adjusted', 'predicted_atr_adjusted']].round(2)
     
 
     df = df[['predicted_low_adjusted', 'predicted_high_adjusted', 'predicted_atr_adjusted', 'predicted_low_direction', 'predicted_high_direction']]
@@ -610,7 +610,7 @@ def adjust_pred_table(df):
 
 def remove_trailing_zeroes(val):
     if isinstance(val, float):
-        return '{:.2f}'.format(val).rstrip('0').rstrip('.')
+        return '{:.4f}'.format(val).rstrip('0').rstrip('.')
     return val
 
 def get_perf_df(df, ticker):

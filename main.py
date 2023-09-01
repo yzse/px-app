@@ -7,7 +7,7 @@ import pandas as pd
 import s3fs
 from helpers import *
 pd.set_option('mode.chained_assignment', None)
-pd.set_option('display.float_format', '{:.2f}'.format)
+# pd.set_option('display.float_format', '{:.4f}'.format)
 
 # set seeds
 os.environ['PYTHONHASHSEED']=str(1)
@@ -62,15 +62,17 @@ def show_main_page():
         # non-indicator adjustments for group_df
         group_df = get_grouped_df(valid).tail(21)
 
-        if group_df['low'].mean() < 1:
-            group_df = group_df.round(4)
-        else:
-            group_df = group_df.round(2)
+        # if group_df['low'].mean() < 1:
+        #     group_df = group_df.round(4)
+        # else:
+        #     group_df = group_df.round(2)
+
+
 
         group_df = group_df.applymap(remove_trailing_zeroes)
         
         st.title("Historical Prices Table")
-        st.write("Predicted & actual prices for the past 30 days, based on prices from the last 365 days.")
+        st.write("Predicted & actual prices for the past {} days.".format(number_of_days))
         with st.expander("More about the table"):
             st.write(" - `avg_pct_diff` represents the average difference, as a percentage, between the predicted price and the actual price. It is averaged between the differences between the actual low price & predicted low price, and actual high price & predicted high price.")
 
@@ -208,19 +210,19 @@ def show_indicators():
 
             group_df = get_grouped_df(valid).tail(21)
 
-            if group_df['low'].mean() < 1:
-                group_df = group_df.round(4)
-            else:
-                group_df = group_df.round(2)
+            st.dataframe(group_df)
+
+            # if group_df['low'].mean() < 1:
+            #     group_df = group_df.round(4)
+            # else:
+            #     group_df = group_df.round(2)
 
             group_df = group_df.applymap(remove_trailing_zeroes)
             
             # drop 'date' column
             group_df = group_df.drop('date', axis=1)
 
-            st.write("Predicted & actual prices for the past 30 days, based on prices from the last 365 days, with the selected indicators: `{}`.".format(', '.join(indicators_to_keep)))
-
-            
+            st.write("Predicted & actual prices for the past {} days with the selected indicators: `{}`.".format(number_of_days, ', '.join(indicators_to_keep)))
 
             st.write("Based on these indicators, the average percentage differences between the predicted prices and actual prices are: ")
 
@@ -229,8 +231,8 @@ def show_indicators():
             group_df.pct_diff_high = pd.to_numeric(group_df.pct_diff_high, errors='coerce')
 
             # results
-            st.write(f"- Low: `{group_df.pct_diff_low.mean().round(2)}%`")
-            st.write(f"- High: `{group_df.pct_diff_high.mean().round(2)}%`")
+            # st.write(f"- Low: `{group_df.pct_diff_low.mean().round(2)}%`")
+            # st.write(f"- High: `{group_df.pct_diff_high.mean().round(2)}%`")
 
             st.dataframe(group_df)
 
