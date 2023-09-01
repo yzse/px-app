@@ -210,7 +210,7 @@ def show_indicators():
 
             group_df = get_grouped_df(valid).tail(21)
 
-            st.dataframe(group_df)
+            # st.dataframe(group_df)
 
             # if group_df['low'].mean() < 1:
             #     group_df = group_df.round(4)
