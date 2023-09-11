@@ -185,8 +185,7 @@ def show_indicators():
             st.dataframe(
                 best_corr_df.style.applymap(
                     lambda _: "background-color: #29623D;", subset=([0], slice(None))
-                ),
-                hide_index=True
+                )
             )
 
             train_size = int(len(scaled_data_low) * 0.8)
