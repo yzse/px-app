@@ -43,7 +43,7 @@ def show_main_page():
 
         ### low/high model
         # initiate model
-        model, scaled_data_low, scaled_data_high, x_train_low, y_train_low, x_test_low, x_train_high, y_train_high, x_test_high = initiate_model(ticker, low_high_df)
+        model, scaled_data_low, scaled_data_high, x_train_low, y_train_low, x_test_low, x_train_high, y_train_high, x_test_high = initiate_model(low_high_df)
 
         train_size = int(len(scaled_data_low) * 0.8)
         time_steps = 1
@@ -54,21 +54,10 @@ def show_main_page():
         predictions_high_arr, predicted_high = run_model(model, low_high_df, train_size, time_steps, scaled_data_high, x_test_high, x_train_high, y_train_high, 'predictions_high')
 
         valid = low_high_df[train_size:-1]
-
         valid['predictions_low'] = predictions_low_arr
         valid['predictions_high'] = predictions_high_arr
 
         ### historical predictions
-        # non-indicator adjustments for group_df
-        group_df = get_grouped_df(valid).tail(21)
-
-        # if group_df['low'].mean() < 1:
-        #     group_df = group_df.round(4)
-        # else:
-        #     group_df = group_df.round(2)
-
-
-
         group_df = group_df.applymap(remove_trailing_zeroes)
         
         st.title("Historical Prices Table")
@@ -132,11 +121,11 @@ def show_indicators():
         ticker = st.text_input("Ticker:", "", placeholder="e.g. AAPL, TSLA, BTC-USD, ETH-USD")
         
         # slider
-        number_of_days = st.slider("Number of days to lookback:", min_value=20, max_value=365, value=20, step=5)
+        # number_of_days = st.slider("Number of days to lookback:", min_value=20, max_value=365, value=20, step=5)
+        number_of_days = 365
 
         # add indicator selection here
-        st.write("Select indicators to include in the lookback model:")
-        with st.expander("More about the indicators"):
+        with st.expander("Available Indicators"):
         
                 st.write(" - `VIX:` reflects market uncertainty for the next 30 days based on S&P 500 options. A higher VIX value indicates higher expected market volatility during that period.")
 
@@ -147,22 +136,14 @@ def show_indicators():
                 st.write(" - `MACD:` is a trend-following momentum indicator that shows the relationship between two moving averages of a stock's price. The MACD is calculated by subtracting the 26-period exponential moving average (EMA) from the 12-period EMA. A nine-day EMA of the MACD, called the signal line, is then plotted on top of the MACD, functioning as a trigger for buy and sell signals.")
 
                 st.write(" - `Bollinger Bands MAVG:`  consists of a Moving Average (MAVG) within Bollinger Bands, used to gauge price volatility and identify potential reversals and breakouts. BB = MAVG ± (2 * SD), where SD = standard deviation of the MAVG.")
-        if 'indicators' not in st.session_state:
-            st.session_state.indicators = ['VIX', 'sp500', 'beta', 'rsi_14', 'rsi_21', 'macd', 'bb_mavg']
-        
-        # Display checkboxes for indicators and store their state in session_state
-        for i, indicator in enumerate(st.session_state.indicators):
-            st.session_state[indicator] = st.checkbox(label=f'{indicator}', key=i)
-
-        indicators_to_keep = [indicator for indicator in st.session_state.indicators if st.session_state[indicator]]
-
-        # get list of indicators to drop based on user selection
-        indicators_to_drop = [indicator for indicator in st.session_state.indicators if not st.session_state[indicator]]
 
         submit_button = st.form_submit_button(label='Submit')
 
         if submit_button:
-        # dates
+            # runtime
+            start_time = time.time()
+
+            # dates
             end_date = datetime.date.today() +  timedelta(days=1)
             start_date = end_date - timedelta(days=number_of_days)
 
@@ -171,35 +152,48 @@ def show_indicators():
             low_high_df = eod_data_df.filter(['open', 'low', 'high', 'close', 'volume'])
 
             # get df with indicators
-            indicator_df = append_indicators(low_high_df, start_date, end_date)
+            clean_indicator_df = append_indicators(low_high_df, start_date, end_date)
+            clean_indicator_df = clean_indicator_df.apply(pd.to_numeric, errors='coerce')
 
-            # filter df to drop indicators_to_drop
-            clean_indicator_df = indicator_df.drop(indicators_to_drop, axis=1)
-
-            st.write("You've selected: `{}`.".format(', '.join(indicators_to_keep)))
+            if clean_indicator_df.isnull().values.any():
+                # impute missing values
+                clean_indicator_df = clean_indicator_df.fillna(method='ffill')
+                clean_indicator_df = clean_indicator_df.fillna(method='bfill')
 
             load_chart(low_high_df, ticker)
 
-            # initiate model
-            model, scaled_data_low, scaled_data_high, x_train_low, y_train_low, x_test_low, x_train_high, y_train_high, x_test_high = initiate_model(ticker, clean_indicator_df)
-
-            train_size = int(len(scaled_data_low) * 0.8)
-            time_steps = 1
-
             # correlation matrix
-            st.subheader("Correlation Matrix")
+            st.subheader("Highest Correlation with Low & High Prices")
+
 
             # explanation
             with st.expander("More about the correlation matrix"):
                 st.write(" - The correlation matrix shows the correlation between the selected indicators and the low & high prices. The closer the value is to 1, the stronger the positive correlation. The closer the value is to -1, the stronger the negative correlation. A value of 0 indicates no correlation.")
                 st.write(" - The correlation matrix is calculated using the Pearson correlation coefficient, which measures the linear correlation between two variables X and Y. The coefficient's value ranges from -1 to 1. A value of 1 implies that a linear equation describes the relationship between X and Y perfectly, with all data points lying on a line for which Y increases as X increases. A value of -1 implies that all data points lie on a line for which Y decreases as X increases. A value of 0 implies that there is no linear correlation between the variables.")
+                st.write("- The column 'indicators correlated at > 80%' shows the indicators that have a correlation of over 80% with the low & high prices. These indicators are used to train the model. The number of days to lookback is also selected based on the highest correlation with the low & high prices. The mean correlation is calculated by averaging the correlation between the low price and the high price.")
 
-            get_correlation_matrix(clean_indicator_df)
+            best_corr_df = get_highest_corr(clean_indicator_df)
+            best_indicators, best_lookback = best_corr_df.iloc[0][0], best_corr_df.iloc[0][1]
+
+            st.write("The best performing indicators to use are `{}` with a lookback of `{}` days.".format(best_indicators, best_lookback))
+
+            model_low, model_high, scaled_data_low, scaled_data_high, x_train_low, y_train_low, x_test_low, x_train_high, y_train_high, x_test_high = initiate_model(clean_indicator_df, ['VIX', 'sp500', 'rsi_14', 'rsi_21',  'macd', 'bb_mavg'])
+
+            # highlight first row
+            st.dataframe(
+                best_corr_df.style.applymap(
+                    lambda _: "background-color: #29623D;", subset=([0], slice(None))
+                ),
+                hide_index=True,
+                column_config={"widgets": st.column_config.Column(width="medium")}
+            )
+
+            train_size = int(len(scaled_data_low) * 0.8)
 
             # low & high prediction
-            predictions_low_arr, predicted_low = run_model(model, clean_indicator_df, train_size, time_steps, scaled_data_low, x_test_low, x_train_low, y_train_low, 'predictions_low')
+            predictions_low_arr = run_model(model_low, clean_indicator_df, train_size, x_test_low, x_train_low, y_train_low, 'predictions_low')
 
-            predictions_high_arr, predicted_high = run_model(model, clean_indicator_df, train_size, time_steps, scaled_data_high, x_test_high, x_train_high, y_train_high, 'predictions_high')
+            predictions_high_arr = run_model(model_high, clean_indicator_df, train_size, x_test_high, x_train_high, y_train_high, 'predictions_high')
 
             valid = clean_indicator_df[train_size:-1]
 
@@ -207,38 +201,35 @@ def show_indicators():
             valid['predictions_high'] = predictions_high_arr
 
             ### historical predictions
-
             group_df = get_grouped_df(valid).tail(21)
-
-            # st.dataframe(group_df)
-
-            # if group_df['low'].mean() < 1:
-            #     group_df = group_df.round(4)
-            # else:
-            #     group_df = group_df.round(2)
-
             group_df = group_df.applymap(remove_trailing_zeroes)
             
             # drop 'date' column
             group_df = group_df.drop('date', axis=1)
 
-            st.write("Predicted & actual prices for the past {} days with the selected indicators: `{}`.".format(number_of_days, ', '.join(indicators_to_keep)))
-
-            st.write("Based on these indicators, the average percentage differences between the predicted prices and actual prices are: ")
-
             # convert group_df.pct_diff to numeric
             group_df.pct_diff_low = pd.to_numeric(group_df.pct_diff_low, errors='coerce')
             group_df.pct_diff_high = pd.to_numeric(group_df.pct_diff_high, errors='coerce')
 
-            # results
-            # st.write(f"- Low: `{group_df.pct_diff_low.mean().round(2)}%`")
-            # st.write(f"- High: `{group_df.pct_diff_high.mean().round(2)}%`")
+            # reorder columns
+            group_df_show = group_df[['low', 'predicted_low', 'high', 'predicted_high'] + best_indicators + ['pct_diff_low', 'pct_diff_high', 'predicted_low_direction', 'predicted_high_direction']]
 
-            st.dataframe(group_df)
+            st.write("The table below shows the historically predicted prices for `${}` using the model with these parameters, displaying the last 30 days.".format(ticker.upper()))
+
+            st.dataframe(group_df_show)
+            
+            # Create a DataFrame to store the accuracy scores
+            accuracy_scores_df = pd.DataFrame({
+                'Price Point': ['Low', 'High'],
+                'Avg % Diff': [round(group_df.pct_diff_low.mean(), 2), round(group_df.pct_diff_high.mean(), 2)]
+            })
+
+            # Display the accuracy scores in a table
+            st.write("Accuracy scores for between predicted & actual prices, calculated by averaging the differences between predicted & actual prices.")
+            st.dataframe(accuracy_scores_df)
 
             # future predictions
-
-            st.write("Predicted price ranges for the next 3 trading days, based on the selected indicators: `{}`.".format(', '.join(indicators_to_keep)))
+            st.write("Predicted price ranges for the next 3 trading days, based on the best performing indicators and lookback period.")
 
             with st.expander("More about the model"):
                 st.write(" - The model used here is the Long Short-Term Memory (LSTM) model. It is a  neural network architecture used for time series forecasting. It leverages historical price data to capture complex patterns and dependencies over time. By processing sequential data, LSTM models can learn from the historical price movements of stocks, identifying trends and patterns that may impact future prices.")
@@ -253,13 +244,7 @@ def show_indicators():
                     - Loss Metric: `mean squared error`
                 """)
 
-            next_three_business_days, lows_list, highs_list = predict(end_date - timedelta(days=1), predicted_low, predicted_high)
-
-            last_low = float(clean_indicator_df.iloc[-2].low)
-            last_high = float(clean_indicator_df.iloc[-2].high)
-            last_close = float(clean_indicator_df.iloc[-2].close)
-
-            pred_df = get_pred_table(next_three_business_days, lows_list, highs_list, last_low, last_high, last_close)
+            pred_df = get_pred_table(get_next_3_bus_days(end_date), predictions_low_arr, predictions_high_arr, clean_indicator_df)
 
             pred_df_adjusted = adjust_pred_table(pred_df)
 
@@ -270,10 +255,14 @@ def show_indicators():
             path = f"{'myawsbucket-st'}/'streamlit_uploads'/{time_t}"
 
             with s3.open(f"{path}_indicators_{ticker}_lookback.csv", 'wb') as f:
-                group_df.to_csv(f)
+                group_df_show.to_csv(f)
             with s3.open(f"{path}_indicators_{ticker}_predictions.csv", 'wb') as f:
                 pred_df_adjusted.to_csv(f)
 
+            # runtime in minutes
+            end_time = time.time()
+            runtime = round((end_time - start_time)/60, 2)
+            st.write("Runtime: {} minutes.".format(runtime))
             st.write('Files saved to S3 bucket.')
 
         

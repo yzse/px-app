@@ -30,9 +30,8 @@ def check_password():
         return True
 
 if check_password():
-    # show_main_page()
     page_names_to_funcs = {
-        "Application": show_main_page,
+        # "Application": show_main_page,
         "Application+": show_indicators,
         "Reports": show_report_page,
     }
