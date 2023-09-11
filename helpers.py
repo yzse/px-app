@@ -50,7 +50,7 @@ def get_dataframe_yf(ticker, start_date, end_date):
 
 def load_chart(low_high_df, ticker):
     sma_df = low_high_df.copy()
-    st.subheader('${} SMA Chart'.format(ticker.upper()))
+    st.subheader('SMA Chart')
     sma_df['sma_5'] = sma_df['close'].rolling(window=5).mean()
     sma_df['sma_20'] = sma_df['close'].rolling(window=20).mean()
     return st.line_chart(sma_df[['close', 'sma_5', 'sma_20']])

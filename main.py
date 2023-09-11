@@ -116,6 +116,18 @@ def show_main_page():
 def show_indicators():
 
     st.title("Stock Price Prediction for Highs & Lows (+ indicators)")
+
+    with st.expander("Available Indicators"):
+
+        st.write(" - `VIX:` reflects market uncertainty for the next 30 days based on S&P 500 options. A higher VIX value indicates higher expected market volatility during that period.")
+
+        st.write(" - `Stock Beta:` quantifies a stock's volatility compared to the market, with values over 1.0 indicating greater volatility. The higher the stock beta, the more volatile the predicted price movement will be. Here, the beta is benchmarked against the S&P500.")
+
+        st.write(" - `RSI:` measures the magnitude of recent price changes to evaluate overbought or oversold conditions in the price of a stock. RSI values range from 0 to 100. Traditionally, RSI values over 70 indicate overbought conditions, while values under 30 indicate oversold conditions.")
+
+        st.write(" - `MACD:` is a trend-following momentum indicator that shows the relationship between two moving averages of a stock's price. The MACD is calculated by subtracting the 26-period exponential moving average (EMA) from the 12-period EMA. A nine-day EMA of the MACD, called the signal line, is then plotted on top of the MACD, functioning as a trigger for buy and sell signals.")
+
+        st.write(" - `Bollinger Bands MAVG:`  consists of a Moving Average (MAVG) within Bollinger Bands, used to gauge price volatility and identify potential reversals and breakouts. BB = MAVG ± (2 * SD), where SD = standard deviation of the MAVG.")
     
     with st.form(key='my_form_to_submit'):
         ticker = st.text_input("Ticker:", "", placeholder="e.g. AAPL, TSLA, BTC-USD, ETH-USD")
@@ -125,17 +137,7 @@ def show_indicators():
         number_of_days = 365
 
         # add indicator selection here
-        with st.expander("Available Indicators"):
         
-                st.write(" - `VIX:` reflects market uncertainty for the next 30 days based on S&P 500 options. A higher VIX value indicates higher expected market volatility during that period.")
-
-                st.write(" - `Stock Beta:` quantifies a stock's volatility compared to the market, with values over 1.0 indicating greater volatility. The higher the stock beta, the more volatile the predicted price movement will be. Here, the beta is benchmarked against the S&P500.")
-
-                st.write(" - `RSI:` measures the magnitude of recent price changes to evaluate overbought or oversold conditions in the price of a stock. RSI values range from 0 to 100. Traditionally, RSI values over 70 indicate overbought conditions, while values under 30 indicate oversold conditions.")
-
-                st.write(" - `MACD:` is a trend-following momentum indicator that shows the relationship between two moving averages of a stock's price. The MACD is calculated by subtracting the 26-period exponential moving average (EMA) from the 12-period EMA. A nine-day EMA of the MACD, called the signal line, is then plotted on top of the MACD, functioning as a trigger for buy and sell signals.")
-
-                st.write(" - `Bollinger Bands MAVG:`  consists of a Moving Average (MAVG) within Bollinger Bands, used to gauge price volatility and identify potential reversals and breakouts. BB = MAVG ± (2 * SD), where SD = standard deviation of the MAVG.")
 
         submit_button = st.form_submit_button(label='Submit')
 
@@ -184,8 +186,7 @@ def show_indicators():
                 best_corr_df.style.applymap(
                     lambda _: "background-color: #29623D;", subset=([0], slice(None))
                 ),
-                hide_index=True,
-                column_config={"widgets": st.column_config.Column(width="medium")}
+                hide_index=True
             )
 
             train_size = int(len(scaled_data_low) * 0.8)
