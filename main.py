@@ -248,6 +248,8 @@ def show_indicators():
 
             pred_df_adjusted = adjust_pred_table(pred_df)
 
+            pred_df_adjusted = get_atr(pred_df_adjusted, clean_indicator_df)
+
             st.dataframe(pred_df_adjusted)
 
             s3 = s3fs.S3FileSystem(anon=False)

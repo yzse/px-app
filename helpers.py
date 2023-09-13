@@ -270,7 +270,7 @@ def get_pred_table(next_three_business_days, lows_list, highs_list, clean_indica
 
     last_low = float(clean_indicator_df.iloc[-2].low)
     last_high = float(clean_indicator_df.iloc[-2].high)
-    last_close = float(clean_indicator_df.iloc[-2].close)
+    
 
     pct_dev = np.random.uniform(-0.15, 0.15)  # 15% deviation
     lows_list = [last_low + (low - last_low) * 0.15 for low in lows_list]
@@ -385,26 +385,44 @@ def get_pred_table(next_three_business_days, lows_list, highs_list, clean_indica
     pred_df_filled['predicted_low'] = np.where(condition_low, pred_df_filled.apply(lambda row: generate_random_value(row['predicted_low']), axis=1), pred_df_filled['predicted_low'])
     pred_df_filled['predicted_high'] = np.where(condition_high, pred_df_filled.apply(lambda row: generate_random_value(row['predicted_high']), axis=1), pred_df_filled['predicted_high'])
 
-    # check if 'predicted_low' is the same as 'predicted_high' in the current row
-    # mask = pred_df_filled['predicted_low'].round(1) == pred_df_filled['predicted_high'].round(1)
-    # deviations = pred_df_filled.loc[mask, 'predicted_high'] * np.random.uniform(0.05, 0.125, size=mask.sum())
-    # pred_df_filled.loc[mask, 'predicted_high'] += deviations
-    # pred_df_filled.loc[mask, 'predicted_low'] -= deviations
-
     # damping deviation
     pred_df_filled['predicted_low'] = last_low + (pred_df_filled['predicted_low'] - last_low) * 0.15
     pred_df_filled['predicted_high'] = last_high + (pred_df_filled['predicted_high'] - last_high) * 0.15
     
     # predicted_atr
-    pred_df_filled['predicted_atr'] = pred_df_filled.apply(calculate_atr, axis=1, last_close=last_close, pred_low_col=pred_low_col, pred_high_col=pred_high_col)
+    # pred_df_filled['predicted_atr'] = pred_df_filled.apply(calculate_atr, axis=1, last_close=last_close, pred_low_col=pred_low_col, pred_high_col=pred_high_col)
 
-    # move columns
-    pred_df_filled.insert(2, "predicted_atr", pred_df_filled.pop('predicted_atr'))
+    # # move columns
+    # pred_df_filled.insert(2, "predicted_atr", pred_df_filled.pop('predicted_atr'))
 
     # make sure predicted_low < predicted_high
     pred_df_filled.loc[pred_df_filled['predicted_low'] > pred_df_filled['predicted_high'], ['predicted_low', 'predicted_high']] = pred_df_filled.loc[pred_df_filled['predicted_low'] > pred_df_filled['predicted_high'], ['predicted_high', 'predicted_low']].values
 
     return pred_df_filled
+
+def calculate_tr(row, last_close):
+    predicted_high = pd.to_numeric(row['predicted_high_adjusted'])
+    predicted_low = pd.to_numeric(row['predicted_low_adjusted'])
+    last_close = pd.to_numeric(last_close)
+    
+    return max(predicted_high - predicted_low, abs(predicted_high - last_close), abs(predicted_low - last_close))
+
+def get_atr(pred_df_adjusted, clean_indicator_df):
+    # Calculate last_close from clean_indicator_df
+    last_close = clean_indicator_df.iloc[-2].close
+
+    # Ensure that the columns contain numeric values
+    pred_df_adjusted['predicted_high_adjusted'] = pd.to_numeric(pred_df_adjusted['predicted_high_adjusted'])
+    pred_df_adjusted['predicted_low_adjusted'] = pd.to_numeric(pred_df_adjusted['predicted_low_adjusted'])
+    
+    # Calculate predicted_atr
+    pred_df_adjusted['predicted_atr'] = pred_df_adjusted.apply(calculate_tr, axis=1, last_close=last_close)
+
+    # move atr to 3rd col
+    pred_df_adjusted.insert(2, "predicted_atr", pred_df_adjusted.pop('predicted_atr'))
+
+    return pred_df_adjusted
+
 
 def get_accuracy_table(pred_df_filled, clean_indicator_df):
     # accuracy table
@@ -576,7 +594,7 @@ def adjust_indicator_table(df):
 def adjust_pred_table(df):
     low_adjustments = np.random.normal(loc=df['predicted_low'], scale=df['predicted_low'] * 0.01)
     high_adjustments = np.random.normal(loc=df['predicted_high'], scale=df['predicted_high'] * 0.01)
-    atr_adjustments = np.random.normal(loc=df['predicted_atr'], scale=df['predicted_atr'] * 0.01)
+    # atr_adjustments = np.random.normal(loc=df['predicted_atr'], scale=df['predicted_atr'] * 0.01)
     
     # clip the adjustments to be within the tolerance range
     low_adjusted = np.clip(low_adjustments, a_min=None, a_max=high_adjustments)
@@ -589,7 +607,7 @@ def adjust_pred_table(df):
     # set adjusted prices in the DataFrame
     df['predicted_low_adjusted'] = low_adjusted
     df['predicted_high_adjusted'] = high_adjustments
-    df['predicted_atr_adjusted'] = atr_adjustments
+    # df['predicted_atr_adjusted'] = atr_adjustments
 
     # reduce variation
     smoothing_factor = 0.1
@@ -598,7 +616,7 @@ def adjust_pred_table(df):
     df["predicted_high_adjusted"] = mean_val + diff
     df["predicted_low_adjusted"] = mean_val - diff
 
-    df = df[['predicted_low_adjusted', 'predicted_high_adjusted', 'predicted_atr_adjusted', 'predicted_low_direction', 'predicted_high_direction']]
+    df = df[['predicted_low_adjusted', 'predicted_high_adjusted', 'predicted_low_direction', 'predicted_high_direction']]
 
     df['variance'] = [1, 2, 3, 1, 2, 3, 1, 2, 3]
 
