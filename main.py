@@ -37,6 +37,8 @@ def show_main_page():
         # dataframe
         eod_data_df = get_dataframe_yf(ticker, start_date, end_date)
         low_high_df = eod_data_df.filter(['open', 'low', 'high', 'close', 'volume'])
+
+       
         
         # chart
         load_chart(low_high_df, ticker)
@@ -53,7 +55,10 @@ def show_main_page():
 
         predictions_high_arr, predicted_high = run_model(model, low_high_df, train_size, time_steps, scaled_data_high, x_test_high, x_train_high, y_train_high, 'predictions_high')
 
-        valid = low_high_df[train_size:-1]
+        
+
+
+        valid = low_high_df[train_size+1:]
         valid['predictions_low'] = predictions_low_arr
         valid['predictions_high'] = predictions_high_arr
 
@@ -191,11 +196,11 @@ def show_indicators():
             train_size = int(len(scaled_data_low) * 0.8)
 
             # low & high prediction
-            predictions_low_arr = run_model(model_low, clean_indicator_df, train_size, x_test_low, x_train_low, y_train_low, 'predictions_low')
+            predictions_low_arr = run_model(model_low, clean_indicator_df, x_test_low, x_train_low, y_train_low, 'predictions_low')
 
-            predictions_high_arr = run_model(model_high, clean_indicator_df, train_size, x_test_high, x_train_high, y_train_high, 'predictions_high')
+            predictions_high_arr = run_model(model_high, clean_indicator_df, x_test_high, x_train_high, y_train_high, 'predictions_high')
 
-            valid = clean_indicator_df[train_size:-1]
+            valid = clean_indicator_df[train_size+1:]
 
             valid['predictions_low'] = predictions_low_arr
             valid['predictions_high'] = predictions_high_arr
@@ -229,7 +234,7 @@ def show_indicators():
             st.dataframe(accuracy_scores_df)
 
             # future predictions
-            st.write("Predicted price ranges for the next 3 trading days, based on the best performing indicators and lookback period.")
+            st.write("Predicted price ranges for the next 3 trading days, based on the best performing indicators and lookback period. Predicted directions are calculated using the average of 3 variances and the previous day's prices.")
 
             with st.expander("More about the model"):
                 st.write(" - The model used here is the Long Short-Term Memory (LSTM) model. It is a  neural network architecture used for time series forecasting. It leverages historical price data to capture complex patterns and dependencies over time. By processing sequential data, LSTM models can learn from the historical price movements of stocks, identifying trends and patterns that may impact future prices.")
@@ -244,13 +249,11 @@ def show_indicators():
                     - Loss Metric: `mean squared error`
                 """)
 
-            pred_df = get_pred_table(get_next_3_bus_days(end_date), predictions_low_arr, predictions_high_arr, clean_indicator_df)
+            pred_df = get_pred_table(get_next_3_bus_days(end_date), clean_indicator_df)
 
-            pred_df_adjusted = adjust_pred_table(pred_df)
+            pred_df_atr = get_atr(pred_df, clean_indicator_df)
 
-            pred_df_adjusted = get_atr(pred_df_adjusted, clean_indicator_df)
-
-            st.dataframe(pred_df_adjusted)
+            st.dataframe(pred_df_atr)
 
             s3 = s3fs.S3FileSystem(anon=False)
             time_t = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
@@ -259,7 +262,7 @@ def show_indicators():
             with s3.open(f"{path}_indicators_{ticker}_lookback.csv", 'wb') as f:
                 group_df_show.to_csv(f)
             with s3.open(f"{path}_indicators_{ticker}_predictions.csv", 'wb') as f:
-                pred_df_adjusted.to_csv(f)
+                pred_df_atr.to_csv(f)
 
             # runtime in minutes
             end_time = time.time()

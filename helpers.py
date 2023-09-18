@@ -13,6 +13,8 @@ from keras.models import Sequential
 from keras.layers import Dense, LSTM
 from sklearn.impute import KNNImputer
 from collections import defaultdict
+from sklearn.linear_model import LinearRegression
+
 import os
 os.environ['PYTHONHASHSEED']=str(1)
 import tensorflow as tf
@@ -177,13 +179,13 @@ def initiate_model(low_high_df, best_indicators):
 
 
 @st.cache_resource(ttl=24*3600, max_entries=3)
-def run_model(_model, df, train_size, x_test, x_train, y_train, col_name):
+def run_model(_model, df, x_test, x_train, y_train, col_name):
 
     # fit
     x_train = x_train.reshape(-1, 1)
     y_train = y_train.reshape(-1, 1)
     x_test = x_test.reshape(-1, 1)
-    _model.fit(x_train, y_train, batch_size=1, epochs=15, verbose=0)
+    _model.fit(x_train, y_train, batch_size=1, epochs=1, verbose=0)
 
     scaler = MinMaxScaler(feature_range=(0, 1))
     low_prices = df['low'].values.reshape(-1, 1)
@@ -201,12 +203,9 @@ def run_model(_model, df, train_size, x_test, x_train, y_train, col_name):
 
     # get every 8th value
     predicted_array = predicted_array[::7]
-    valid = df[train_size:-1]
-
-    # assign predictions to validation dataframe
-    valid[col_name] = predicted_array
 
     return predicted_array
+
 
 @st.cache_data(ttl=24*3600, max_entries=3)
 def get_grouped_df(df): # turn predictions into table
@@ -266,17 +265,72 @@ def get_next_3_bus_days(end_date):
 
 
 @st.cache_data(ttl=24*3600, max_entries=3)
-def get_pred_table(next_three_business_days, lows_list, highs_list, clean_indicator_df):
+def get_pred_table(next_three_business_days, clean_indicator_df):
 
-    last_low = float(clean_indicator_df.iloc[-2].low)
-    last_high = float(clean_indicator_df.iloc[-2].high)
-    
+    # get last 50
+    clean_indicator_df = clean_indicator_df.tail(45)
+    actual_lows = clean_indicator_df.low.values.tolist()
+    actual_highs = clean_indicator_df.high.values.tolist()
 
-    pct_dev = np.random.uniform(-0.15, 0.15)  # 15% deviation
-    lows_list = [last_low + (low - last_low) * 0.15 for low in lows_list]
-    highs_list = [last_high + (high - last_high) * 0.15 for high in highs_list]
+    # get average pct diff from one day's low to the next
+    actual_avg_pct_diff = abs(np.mean([((actual_lows[i + 1] - actual_lows[i]) / actual_lows[i]) * 100 for i in range(len(actual_lows) - 1)]))
 
-    # Create empty lists to store the prices
+    low_model = LinearRegression()
+    low_model.fit([[i] for i in range(len(actual_lows))], actual_lows)
+
+    # Create a Linear Regression model for predicting highs
+    high_model = LinearRegression()
+    high_model.fit([[i] for i in range(len(actual_highs))], actual_highs)
+
+    # Predict the next value for lows and highs
+    next_3_low = low_model.predict([[len(actual_lows) + i] for i in range(3)])
+    next_3_high = high_model.predict([[len(actual_highs) + i] for i in range(3)])
+
+    # get pct diff between next_3_low[0] and actual_lows[-1]
+    next_pct_diff = abs(((next_3_low[0] - actual_lows[-1]) / actual_lows[-1]) * 100)
+
+    # if pct_diff is significantly more than avg_pct_diff, set next_3_low[0] to actual_lows[-1] * random deviation
+
+    # Function to generate a random value within a range
+    def randomize_value(base, min_percent, max_percent):
+        random_factor = random.uniform(min_percent, max_percent)
+        return base * (1 + random_factor)
+
+    # Check if next_pct_diff exceeds a threshold
+    if next_pct_diff > actual_avg_pct_diff * 1.5:
+        # Calculate random values for lows
+        next_3_low = [randomize_value(actual_lows[-1], -0.03, 0.03) for _ in range(3)]
+
+        # Calculate random values for highs ensuring they are higher than lows
+        for i in range(3):
+            if next_3_high[i] < next_3_low[i]:
+                next_3_high[i] = randomize_value(next_3_low[i], 0.01, 0.03)
+
+    # st.write(avg_pct_diff, pct_diff, next_3_low, next_3_high)
+
+    # instantiate df
+    pred_df_filled = pd.DataFrame(columns=['predicted_low', 'predicted_high', 'predicted_low_direction', 'predicted_high_direction'])
+
+    # predict next value using linear regression
+    pred_df_filled['predicted_low'] = next_3_low
+    pred_df_filled['predicted_high'] = next_3_high
+
+    pred_df_filled = get_variances(pred_df_filled, next_three_business_days)
+
+    pred_df_filled_dir = get_predicted_direction(pred_df_filled, actual_lows[-1], actual_highs[-1])
+
+    pred_df_filled_dir['variance'] = [1, 2, 3, 1, 2, 3, 1, 2, 3]
+
+    return pred_df_filled_dir
+
+def get_variances(df, next_three_business_days):
+
+    # df = 3 rows 2 cols
+
+    lows_list = df['predicted_low'].values.tolist()
+    highs_list = df['predicted_high'].values.tolist()
+    pct_dev = np.random.uniform(-0.08, 0.08)
+
     dates = []
     predicted_lows = []
     predicted_highs = []
@@ -284,144 +338,62 @@ def get_pred_table(next_three_business_days, lows_list, highs_list, clean_indica
     # Generate random prices for each date
     for i in range(len(next_three_business_days)):
         date = next_three_business_days[i]
-        deviation_low = random.uniform(-pct_dev, pct_dev)
-        deviation_high = random.uniform(-pct_dev, pct_dev)
 
         # Add the first row
         dates.append(date)
-        predicted_lows.append(lows_list[i] + deviation_low)
-        predicted_highs.append(highs_list[i] + deviation_high)
+        predicted_lows.append(lows_list[i])
+        predicted_highs.append(highs_list[i])
 
         # Add the second and third rows
         for _ in range(2):
-            deviation_low = random.uniform(-pct_dev, pct_dev)
-            deviation_high = random.uniform(-pct_dev, pct_dev)
-            upper_limit_low = predicted_highs[-1] - pct_dev  # upper bound
-            
-            # apply upper bounds
-            new_low = max(predicted_lows[-1] + deviation_low, upper_limit_low)
-            new_high = max(predicted_highs[-1] + deviation_high, new_low) 
+            new_low = predicted_lows[-1] + random.uniform(-pct_dev, pct_dev)
+            new_high = predicted_highs[-1] + random.uniform(-pct_dev, pct_dev)
 
             # append predicted prices for next 3 business days
             dates.append(date)
             predicted_lows.append(new_low)
             predicted_highs.append(new_high)
 
-    # check variation
-    threshold = 6
-    pct_dev_low = [(pl - last_low) / last_low * 100 for pl in predicted_lows]
-    pct_dev_high = [(ph - last_high) / last_high * 100 for ph in predicted_highs]
-    predicted_lows = [pl if abs(pd) <= threshold else last_low * (1 + threshold / 100) for pl, pd in zip(predicted_lows, pct_dev_low)]
-    predicted_highs = [ph if abs(pd) <= threshold else last_high * (1 + threshold / 100) for ph, pd in zip(predicted_highs, pct_dev_high)]
-
-    # dataframe with predicted prices
-    res = pd.DataFrame({
+    res_df = pd.DataFrame({
         'predicted_low': predicted_lows,
         'predicted_high': predicted_highs,
     }, index=dates)
 
-    # Switching the 4th row to the 2nd row
-    res.iloc[[1, 3]] = res.iloc[[3, 1]]
-    res.iloc[[2, 6]] = res.iloc[[6, 2]]
-    res.iloc[[3, 7]] = res.iloc[[7, 3]]
-    res.iloc[[4, 8]] = res.iloc[[8, 4]]
+    return res_df
 
-    # if pred_low price == pred_high price
-    # mask = res['predicted_low'].round(1) == res['predicted_high'].round(1)
+def calculate_averages(pred_df_filled, pred_col, day_count=3):
+  averages = []
+  for i in range(day_count):
+    averages.append(pred_df_filled[pred_col].iloc[i * day_count:(i + 1) * day_count].mean())
+  return averages
 
-    # # Compute the random deviations based on 5% of 'predicted_high'
-    # deviations = res.loc[mask, 'predicted_high'] * np.random.uniform(-0.25, 0.125, size=mask.sum())
-
-    # # Add the random deviations to 'predicted_high' for rows where the mask is True
-    # res.loc[mask, 'predicted_high'] += deviations
-
-    # check NaNs
-    pred_df_filled = res.copy()
-    imputer = KNNImputer(n_neighbors=5)
-    pred_df_filled['predicted_high'] = imputer.fit_transform(pred_df_filled[['predicted_high']])
-    pred_df_filled['predicted_high'] = pred_df_filled[['predicted_low', 'predicted_high']].max(axis=1)
-
-    # reduce variation
-    smoothing_factor = 0.15
-    mean_val = (pred_df_filled["predicted_low"] + pred_df_filled["predicted_high"]) / 2
-    diff = (pred_df_filled["predicted_high"] - pred_df_filled["predicted_low"]) * smoothing_factor
-    pred_df_filled["predicted_high"] = mean_val + diff
-    pred_df_filled["predicted_low"] = mean_val - diff
-
+def get_predicted_direction(pred_df_filled, last_low, last_high):
     # predicted directional column
-    if 'predicted_low_adjusted' in pred_df_filled:
-        pred_low_col = 'predicted_low_adjusted'
-        pred_high_col = 'predicted_high_adjusted'
-    else:
-        pred_low_col = 'predicted_low'
-        pred_high_col = 'predicted_high'
+    pred_low_col = 'predicted_low'
+    pred_high_col = 'predicted_high'
 
-    # prepare rolling average columns for direction columns
-    pred_df_filled['rolling_avg_low'] = pred_df_filled[pred_low_col].rolling(window=3, min_periods=1).mean()
-    pred_df_filled['rolling_avg_high'] = pred_df_filled[pred_high_col].rolling(window=3, min_periods=1).mean()
+    # initialize new columns
+    pred_df_filled['predicted_low_direction'] = ''
+    pred_df_filled['predicted_high_direction'] = ''
 
-    # fill in the predicted_low_direction column
-    pred_df_filled['predicted_low_direction'] = pred_df_filled.apply(lambda row: 'Increase' if (row[pred_low_col] > row['rolling_avg_low'] or last_low > row['rolling_avg_low']) else 'Decrease', axis=1)
+    low_avgs = calculate_averages(pred_df_filled, pred_low_col, 3)
+    high_avgs = calculate_averages(pred_df_filled, pred_high_col, 3)
 
-    # fill in the predicted_high_direction column
-    pred_df_filled['predicted_high_direction'] = pred_df_filled.apply(lambda row: 'Increase' if (row[pred_high_col] > row['rolling_avg_high'] or last_high > row['rolling_avg_high']) else 'Decrease', axis=1)
+    # Define a function to set direction based on conditions
+    def set_direction(column, values, direction):
+        pred_df_filled[column].iloc[values] = direction
 
-    # invert the directions for the first date
-    pred_df_filled.iloc[0, pred_df_filled.columns.get_loc('predicted_low_direction')] = 'Increase' if pred_df_filled.iloc[0][pred_low_col] > last_low else 'Decrease'
-    pred_df_filled.iloc[0, pred_df_filled.columns.get_loc('predicted_high_direction')] = 'Increase' if pred_df_filled.iloc[0][pred_high_col] > last_high else 'Decrease'
+    # Set low direction
+    set_direction('predicted_low_direction', slice(0, 3), 'Down' if low_avgs[0] < last_low else 'Up')
+    set_direction('predicted_low_direction', slice(3, 6), 'Down' if low_avgs[1] < low_avgs[0] else 'Up')
+    set_direction('predicted_low_direction', slice(6, 9), 'Down' if low_avgs[2] < low_avgs[1] else 'Up')
 
-    # fill in the predicted_low_direction and predicted_high_direction columns for the second and third dates
-    pred_df_filled['predicted_low_direction'][1:3] = pred_df_filled['predicted_low_direction'][0]
-    pred_df_filled['predicted_high_direction'][1:3] = pred_df_filled['predicted_high_direction'][0]
-
-    pred_df_filled.drop(['rolling_avg_low', 'rolling_avg_high'], axis=1, inplace=True)
-    pred_df_filled['variance'] = [1, 2, 3, 1, 2, 3, 1, 2, 3]
-
-    # check if predicted prices are the same as the previous day's prices
-    condition_low = pred_df_filled['predicted_low'].eq(pred_df_filled['predicted_low'].shift(1))
-    condition_high = pred_df_filled['predicted_high'].eq(pred_df_filled['predicted_high'].shift(1))
-
-    # update 'predicted_low' and 'predicted_high' based on the conditions
-    pred_df_filled['predicted_low'] = np.where(condition_low, pred_df_filled.apply(lambda row: generate_random_value(row['predicted_low']), axis=1), pred_df_filled['predicted_low'])
-    pred_df_filled['predicted_high'] = np.where(condition_high, pred_df_filled.apply(lambda row: generate_random_value(row['predicted_high']), axis=1), pred_df_filled['predicted_high'])
-
-    # damping deviation
-    pred_df_filled['predicted_low'] = last_low + (pred_df_filled['predicted_low'] - last_low) * 0.15
-    pred_df_filled['predicted_high'] = last_high + (pred_df_filled['predicted_high'] - last_high) * 0.15
-    
-    # predicted_atr
-    # pred_df_filled['predicted_atr'] = pred_df_filled.apply(calculate_atr, axis=1, last_close=last_close, pred_low_col=pred_low_col, pred_high_col=pred_high_col)
-
-    # # move columns
-    # pred_df_filled.insert(2, "predicted_atr", pred_df_filled.pop('predicted_atr'))
-
-    # make sure predicted_low < predicted_high
-    pred_df_filled.loc[pred_df_filled['predicted_low'] > pred_df_filled['predicted_high'], ['predicted_low', 'predicted_high']] = pred_df_filled.loc[pred_df_filled['predicted_low'] > pred_df_filled['predicted_high'], ['predicted_high', 'predicted_low']].values
+    # Set high direction
+    set_direction('predicted_high_direction', slice(0, 3), 'Down' if high_avgs[0] < last_high else 'Up')
+    set_direction('predicted_high_direction', slice(3, 6), 'Down' if high_avgs[1] < high_avgs[0] else 'Up')
+    set_direction('predicted_high_direction', slice(6, 9), 'Down' if high_avgs[2] < high_avgs[1] else 'Up')
 
     return pred_df_filled
-
-def calculate_tr(row, last_close):
-    predicted_high = pd.to_numeric(row['predicted_high_adjusted'])
-    predicted_low = pd.to_numeric(row['predicted_low_adjusted'])
-    last_close = pd.to_numeric(last_close)
-    
-    return max(predicted_high - predicted_low, abs(predicted_high - last_close), abs(predicted_low - last_close))
-
-def get_atr(pred_df_adjusted, clean_indicator_df):
-    # Calculate last_close from clean_indicator_df
-    last_close = clean_indicator_df.iloc[-2].close
-
-    # Ensure that the columns contain numeric values
-    pred_df_adjusted['predicted_high_adjusted'] = pd.to_numeric(pred_df_adjusted['predicted_high_adjusted'])
-    pred_df_adjusted['predicted_low_adjusted'] = pd.to_numeric(pred_df_adjusted['predicted_low_adjusted'])
-    
-    # Calculate predicted_atr
-    pred_df_adjusted['predicted_atr'] = pred_df_adjusted.apply(calculate_tr, axis=1, last_close=last_close)
-
-    # move atr to 3rd col
-    pred_df_adjusted.insert(2, "predicted_atr", pred_df_adjusted.pop('predicted_atr'))
-
-    return pred_df_adjusted
 
 
 def get_accuracy_table(pred_df_filled, clean_indicator_df):
@@ -441,18 +413,6 @@ def get_accuracy_table(pred_df_filled, clean_indicator_df):
     accuracy_df.insert(4, "predicted_high_accuracy", accuracy_df.pop('predicted_high_accuracy'))
 
     return accuracy_df
-
-def generate_random_value(value, deviation=0.1):
-        return np.random.uniform(value - deviation, value + deviation)
-
-def calculate_atr(row, pred_low_col, pred_high_col, last_close):
-    predicted_low = row[pred_low_col]
-    predicted_high = row[pred_high_col]
-    
-    # calculate the True Range (TR) for the row
-    tr = max(predicted_high - predicted_low, abs(predicted_high - last_close), abs(predicted_low - last_close))
-    
-    return tr
 
 def filter_and_reformat_data(data):
     ticker_times_ind = defaultdict(list)
@@ -559,70 +519,51 @@ def append_indicators(df, start_date, end_date):
 
     return df
 
-def adjust_indicator_table(df):
+def get_atr(df, clean_indicator_df):
+    high_col = 'predicted_high'
+    low_col = 'predicted_low'
 
-    num_cols = ['pct_diff_low_adjusted', 'pct_diff_high_adjusted', 'predicted_low_adjusted', 'predicted_high_adjusted']
-    df[num_cols] = df[num_cols].apply(pd.to_numeric, errors='coerce')
+    last_high = clean_indicator_df.high.iloc[-1]
+    last_low = clean_indicator_df.low.iloc[-1]
+    last_atr = abs(last_high - last_low)
 
-    pct_diff_threshold = 12
+    # set index to new column 'date'
+    df['date'] = df.index
+    df.reset_index(drop=True, inplace=True)
 
-    # adjust predicted prices based on pct_diff_threshold
-    df['predicted_low_adjusted'] = np.where(
-        df['pct_diff_low_adjusted'] > pct_diff_threshold,
-        df['predicted_low_adjusted'] * (1 + pct_diff_threshold / 100),
-        np.where(
-            df['pct_diff_low_adjusted'] < -pct_diff_threshold,
-            df['predicted_low_adjusted'] * (1 - pct_diff_threshold / 100),
-            df['predicted_low_adjusted']
-        )
-    )
+    # check outliers
+    df['predicted_atr'] = abs(df[high_col] - df[low_col])
+    df['atr_outlier'] = df['predicted_atr'].apply(lambda x: True if x > last_atr * 2.5 else False)
 
-    df['predicted_high_adjusted'] = np.where(
-        df['pct_diff_high_adjusted'] > pct_diff_threshold,
-        df['predicted_high_adjusted'] * (1 + pct_diff_threshold / 100),
-        np.where(
-            df['pct_diff_high_adjusted'] < -pct_diff_threshold,
-            df['predicted_high_adjusted'] * (1 - pct_diff_threshold / 100),
-            df['predicted_high_adjusted']
-        )
-    )
+    def adjust_within_tolerance(previous_value, tolerance=0.05):
+        return previous_value + (previous_value * random.uniform(-tolerance, tolerance))
 
-    df = df.applymap(remove_trailing_zeroes)
+    # Apply adjustments to 'predicted_low' and 'predicted_high'
+    for i in range(1, len(df)):
+        if df.loc[i, 'atr_outlier']:
+            df.loc[i, low_col] = adjust_within_tolerance(df.loc[i - 1, low_col])
+            df.loc[i, high_col] = adjust_within_tolerance(df.loc[i - 1, high_col])
 
-    return df
 
-def adjust_pred_table(df):
-    low_adjustments = np.random.normal(loc=df['predicted_low'], scale=df['predicted_low'] * 0.01)
-    high_adjustments = np.random.normal(loc=df['predicted_high'], scale=df['predicted_high'] * 0.01)
-    # atr_adjustments = np.random.normal(loc=df['predicted_atr'], scale=df['predicted_atr'] * 0.01)
-    
-    # clip the adjustments to be within the tolerance range
-    low_adjusted = np.clip(low_adjustments, a_min=None, a_max=high_adjustments)
-    
-    # adjust 'low_adjusted' and 'high_adjustments' if they are identical
-    mask = low_adjusted == high_adjustments
-    low_adjusted[mask] -= 0.001 
-    high_adjustments[mask] += 0.001 
-    
-    # set adjusted prices in the DataFrame
-    df['predicted_low_adjusted'] = low_adjusted
-    df['predicted_high_adjusted'] = high_adjustments
-    # df['predicted_atr_adjusted'] = atr_adjustments
+    # recalculate atr
+    df['predicted_atr'] = abs(df[high_col] - df[low_col])
 
-    # reduce variation
-    smoothing_factor = 0.1
-    mean_val = (df["predicted_low_adjusted"] + df["predicted_high_adjusted"]) / 2
-    diff = (df["predicted_high_adjusted"] - df["predicted_low_adjusted"]) * smoothing_factor
-    df["predicted_high_adjusted"] = mean_val + diff
-    df["predicted_low_adjusted"] = mean_val - diff
+    # move atr to 3rd col
+    df.insert(2, "predicted_atr", df.pop('predicted_atr'))
 
-    df = df[['predicted_low_adjusted', 'predicted_high_adjusted', 'predicted_low_direction', 'predicted_high_direction']]
+    # rounding
+    if df.iloc[0, 0] < 1:
+        decimals = 4
+    elif df.iloc[0, 0] < 20:
+        decimals = 3
+    else:
+        decimals = 2
 
-    df['variance'] = [1, 2, 3, 1, 2, 3, 1, 2, 3]
+    df[low_col] = df[low_col].astype(float).round(decimals)
+    df[high_col] = df[high_col].astype(float).round(decimals)
+    df['predicted_atr'] = df['predicted_atr'].astype(float).round(decimals)
 
-    # round to 4 significant figures
-    df = df.applymap(remove_trailing_zeroes)
-
+    df = df[['date', 'predicted_low', 'predicted_high', 'predicted_atr', 'predicted_low_direction', 'predicted_high_direction', 'variance', 'atr_outlier']]
 
     return df
 
