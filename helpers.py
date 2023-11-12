@@ -14,6 +14,10 @@ from keras.layers import Dense, LSTM
 from sklearn.impute import KNNImputer
 from collections import defaultdict
 from sklearn.linear_model import LinearRegression
+from skopt import BayesSearchCV
+from skopt.space import Integer, Real
+from sklearn.base import BaseEstimator
+from sklearn.metrics import mean_absolute_error, mean_squared_error, make_scorer
 
 import os
 os.environ['PYTHONHASHSEED']=str(1)
@@ -68,6 +72,14 @@ def get_correlation_matrix(df):
         corr = corr.drop(['date'], axis=0)
     
     return corr
+
+def get_best_ind_params(clean_indicator_df):
+    all_corr = get_correlation_matrix(clean_indicator_df).sort_values(by=['low'], ascending=False)
+    all_corr = all_corr.reset_index().rename(columns={'index': 'indicator'})
+    all_corr['group'] = all_corr['indicator'].apply(lambda x: x.split('_')[0])
+    all_corr = all_corr.drop_duplicates(subset='group')
+    clean_indicator_df = clean_indicator_df[['open', 'low', 'high', 'close', 'volume'] + all_corr['indicator'].tolist()]
+    return clean_indicator_df
 
 def get_highest_corr(clean_indicator_df):
 
@@ -155,7 +167,7 @@ def initiate_model(low_high_df, best_indicators):
     indicator_scaler = MinMaxScaler(feature_range=(0, 1))
     scaled_indicator_data = indicator_scaler.fit_transform(indicators)
 
-    # Combine scaled indicator data with scaled price data
+    # combine scaled indicator data with scaled price data
     combined_high = np.concatenate((scaled_data_high, scaled_indicator_data), axis=1)
     combined_low = np.concatenate((scaled_data_low, scaled_indicator_data), axis=1)
 
@@ -201,8 +213,8 @@ def run_model(_model, df, x_test, x_train, y_train, col_name):
     predicted_array = _model.predict(x_test, verbose=0)
     predicted_array = scaler.inverse_transform(predicted_array)
 
-    # get every 8th value
-    predicted_array = predicted_array[::7]
+    # get every 2nd value
+    predicted_array = predicted_array[::2]
 
     return predicted_array
 
@@ -478,7 +490,7 @@ def find_files_with_substrings(file_list, substrings):
     return matched_files
 
 @st.cache_data(ttl=24*3600, max_entries=3)
-def append_indicators(df, start_date, end_date):
+def append_indicators(df, start_date, end_date, bayesian=False):
 
     # convert dates to strings
     start_date_str = start_date.strftime('%Y-%m-%d')
@@ -502,16 +514,43 @@ def append_indicators(df, start_date, end_date):
     beta = (rolling_cov / rolling_var).abs()
     df['beta'] = beta
 
-    # rsi
-    df['rsi_14'] = ta.momentum.RSIIndicator(df['close'], window=14, fillna=True).rsi()
-    df['rsi_21'] = ta.momentum.RSIIndicator(df['close'], window=21, fillna=True).rsi()
+    if bayesian==False:
 
-    # macd
-    df['macd'] = ta.trend.macd(df['close'], fillna=True)
+        # rsi
+        df['rsi_14'] = ta.momentum.RSIIndicator(df['close'], window=14, fillna=True).rsi()
+        df['rsi_21'] = ta.momentum.RSIIndicator(df['close'], window=21, fillna=True).rsi()
 
-    # bollinger bands
-    indicator_bb = ta.volatility.BollingerBands(close=df["close"], window=20, window_dev=2, fillna=True)
-    df['bb_mavg'] = indicator_bb.bollinger_mavg()
+        # macd
+        df['macd'] = ta.trend.macd(df['close'], window_fast=10, window_slow=25, fillna=True)
+
+        # bollinger bands
+        indicator_bb = ta.volatility.BollingerBands(close=df["close"], window=20, window_dev=2, fillna=True)
+        df['bb_mavg'] = indicator_bb.bollinger_mavg()
+
+
+    elif bayesian==True: # bayesian optimization
+
+        # params
+        rsi_windows = [5, 10, 15, 20, 25, 30]
+        macd_windows_fast = [3, 5, 10, 15, 20, 25, 30, 35, 40, 45, 50]
+        macd_windows_slow = [10, 15, 20, 25, 30, 35, 40, 45, 50, 100]
+        bb_windows = [10, 15, 20, 25, 30]
+        bb_windows_dev = [1, 2, 3, 4, 5]
+
+        # rsi
+        for rsi_window in rsi_windows:
+            df[f'rsi_{rsi_window}'] = ta.momentum.RSIIndicator(df['close'], window=rsi_window, fillna=True).rsi()
+
+        # macd
+        for macd_window_fast in macd_windows_fast:
+            for macd_window_slow in macd_windows_slow:
+                df[f'macd_{macd_window_fast}_{macd_window_slow}'] = ta.trend.macd(df['close'], window_fast=macd_window_fast, window_slow=macd_window_slow, fillna=True)
+
+        # bollinger bands
+        for bb_window in bb_windows:
+            for bb_window_dev in bb_windows_dev:
+                indicator_bb = ta.volatility.BollingerBands(close=df["close"], window=bb_window, window_dev=bb_window_dev, fillna=True)
+                df[f'bb_{bb_window}_{bb_window_dev}'] = indicator_bb.bollinger_mavg()
 
     # clean up
     df = df.iloc[1:]
@@ -563,7 +602,7 @@ def get_atr(df, clean_indicator_df):
     df[high_col] = df[high_col].astype(float).round(decimals)
     df['predicted_atr'] = df['predicted_atr'].astype(float).round(decimals)
 
-    df = df[['date', 'predicted_low', 'predicted_high', 'predicted_atr', 'predicted_low_direction', 'predicted_high_direction', 'variance', 'atr_outlier']]
+    df = df[['date', 'predicted_low', 'predicted_high', 'predicted_atr', 'predicted_low_direction', 'predicted_high_direction', 'variance']]
 
     return df
 

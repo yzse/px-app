@@ -1,5 +1,5 @@
 import streamlit as st
-from main import show_main_page, show_report_page, show_indicators
+from main import show_report_page, show_indicators
 
 def check_password():
     """Returns `True` if the user had the correct password."""
