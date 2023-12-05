@@ -14,18 +14,11 @@ from keras.layers import Dense, LSTM
 from sklearn.impute import KNNImputer
 from collections import defaultdict
 from sklearn.linear_model import LinearRegression
-# from skopt import BayesSearchCV
-# from skopt.space import Integer, Real
-# from sklearn.base import BaseEstimator
-# from sklearn.metrics import mean_absolute_error, mean_squared_error, make_scorer
-
 import os
-os.environ['PYTHONHASHSEED']=str(1)
 import tensorflow as tf
 import yfinance as yf
 import ta
 pd.set_option('mode.chained_assignment', None)
-# pd.set_option('display.float_format', '{:.4f}'.format)
 
 # set seeds
 os.environ['PYTHONHASHSEED']=str(1)
@@ -214,7 +207,7 @@ def run_model(_model, df, x_test, x_train, y_train, col_name):
     predicted_array = scaler.inverse_transform(predicted_array)
 
     # get every 2nd value
-    predicted_array = predicted_array[::2]
+    predicted_array = predicted_array[::3]
 
     return predicted_array
 

@@ -7,7 +7,6 @@ import pandas as pd
 import s3fs
 from helpers import *
 pd.set_option('mode.chained_assignment', None)
-# pd.set_option('display.float_format', '{:.4f}'.format)
 
 # set seeds
 os.environ['PYTHONHASHSEED']=str(1)
@@ -182,8 +181,8 @@ def show_report_page():
         selected_report = st.radio('Select a report: ', selected)
 
         if selected_report:
-            # get the table from s3
 
+            # get the table from s3
             splitted_names = selected_report.split(" ")
             if len(splitted_names) == 4:
                 s_ticker, s_date, s_status, s_ind = splitted_names
