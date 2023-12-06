@@ -6,6 +6,6 @@ The application processes a stock ticker and retrieves historical stock prices s
 
 On average, the model is able to achieve a ~94% accuracy rate with less than 6% price difference from the actual price and the predicted price for the desired assets.
 
-<img width="505" alt="Screenshot 2023-08-10 at 19 25 30" src="https://github.com/yzse/px-app/assets/54381977/7eb6ad8b-df29-41e8-bf26-b437b01c76cb">
+<img width="490" alt="Screenshot 2023-12-06 at 00 14 03" src="https://github.com/yzse/px-app/assets/54381977/086ebee0-5471-4827-aef7-a3e98a459642">
 
-<img width="605" alt="Screenshot 2023-08-10 at 19 21 29" src="https://github.com/yzse/px-app/assets/54381977/2efc84a8-8875-4376-9f26-38bf8e8c4b70">
+<img width="503" alt="Screenshot 2023-12-06 at 00 14 12" src="https://github.com/yzse/px-app/assets/54381977/fcfc98a5-0908-45c9-b62d-39477f8a720f">
