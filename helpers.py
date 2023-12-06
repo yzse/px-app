@@ -307,7 +307,7 @@ def get_variances(df, next_three_business_days):
     highs_list = df['predicted_high'].values.tolist()
 
     rng = np.random.default_rng(123)
-    pct_dev = rng.uniform(-1, 1)
+    pct_dev = rng.uniform(-2.5, 2.5)
 
     dates = []
     predicted_lows = []
