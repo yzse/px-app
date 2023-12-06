@@ -35,7 +35,7 @@ def show_indicators():
         ticker = st.text_input("Ticker:", "", placeholder="e.g. AAPL, TSLA, BTC-USD, ETH-USD")
         
         # slider
-        number_of_days = 365
+        number_of_days = 365 # 365
 
         submit_button = st.form_submit_button(label='Submit')
 
@@ -60,7 +60,7 @@ def show_indicators():
                 clean_indicator_df = clean_indicator_df.fillna(method='ffill')
                 clean_indicator_df = clean_indicator_df.fillna(method='bfill')
 
-            load_chart(low_high_df, ticker)
+            load_chart(low_high_df)
 
             # correlation matrix
             st.subheader("Highest Correlation with Low & High Prices")
@@ -80,24 +80,22 @@ def show_indicators():
 
             st.write("The best performing indicators to use are `{}` with a lookback of `{}` days.".format(best_indicators, best_lookback))
 
-            model_low, model_high, scaled_data_low, scaled_data_high, x_train_low, y_train_low, x_test_low, x_train_high, y_train_high, x_test_high = initiate_model(clean_indicator_df, best_indicators)
+            model_low, model_high, x_train_low, y_train_low, x_test_low, x_train_high, y_train_high, x_test_high = initiate_model(clean_indicator_df, best_indicators)
 
             # highlight first row
             st.dataframe(
                 best_corr_df.style.applymap(
-                    lambda _: "background-color: #29623D;", subset=([0], slice(None))
+                    lambda _: "background-color: #82C79F;", subset=([0], slice(None))
                 )
             )
-
-            train_size = int(len(scaled_data_low) * 0.8)
 
             # low & high prediction
             predictions_low_arr = run_model(model_low, clean_indicator_df, x_test_low, x_train_low, y_train_low, 'predictions_low')
 
             predictions_high_arr = run_model(model_high, clean_indicator_df, x_test_high, x_train_high, y_train_high, 'predictions_high')
 
-            valid = clean_indicator_df[train_size+1:]
-
+            # set same size as predictions_low_arr
+            valid = clean_indicator_df.tail(len(predictions_low_arr))
             valid['predictions_low'] = predictions_low_arr
             valid['predictions_high'] = predictions_high_arr
 
@@ -113,19 +111,19 @@ def show_indicators():
             group_df.pct_diff_high = pd.to_numeric(group_df.pct_diff_high, errors='coerce')
 
             # reorder columns
-            group_df_show = group_df[['low', 'predicted_low', 'high', 'predicted_high'] + best_indicators + ['pct_diff_low', 'pct_diff_high', 'predicted_low_direction', 'predicted_high_direction']]
+            group_df_show = group_df[['low', 'predicted_low', 'high', 'predicted_high', 'atr'] + best_indicators + ['pct_diff_low', 'pct_diff_high', 'predicted_low_direction', 'predicted_high_direction']]
 
             st.write("The table below shows the historically predicted prices for `${}` using the model with these parameters, displaying the last 30 days.".format(ticker.upper()))
 
             st.dataframe(group_df_show)
             
-            # Create a DataFrame to store the accuracy scores
+            # store the accuracy scores
             accuracy_scores_df = pd.DataFrame({
                 'Price Point': ['Low', 'High'],
                 'Avg % Diff': [round(group_df.pct_diff_low.mean(), 2), round(group_df.pct_diff_high.mean(), 2)]
             })
 
-            # Display the accuracy scores in a table
+            # accuracy scores
             st.write("Accuracy scores for between predicted & actual prices, calculated by averaging the differences between predicted & actual prices.")
             st.dataframe(accuracy_scores_df)
 
@@ -145,6 +143,9 @@ def show_indicators():
                     - Loss Metric: `mean squared error`
                 """)
 
+            clean_indicator_df['atr'] = clean_indicator_df['high'] - clean_indicator_df['low']
+
+            # predict low & atr, set high as low + atr
             pred_df = get_pred_table(get_next_3_bus_days(end_date), clean_indicator_df)
 
             pred_df_atr = get_atr(pred_df, clean_indicator_df)
