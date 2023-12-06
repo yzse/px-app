@@ -18,10 +18,10 @@ import ta
 pd.set_option('mode.chained_assignment', None)
 
 # set seeds
-os.environ['PYTHONHASHSEED']=str(1)
-tf.random.set_seed(1)
-np.random.seed(1)
-random.seed(1)
+os.environ['PYTHONHASHSEED']=str(5)
+tf.random.set_seed(5)
+np.random.seed(5)
+random.seed(5)
 
 @st.cache_data(ttl=24*3600, max_entries=3)
 def get_dataframe_yf(ticker, start_date, end_date):
@@ -305,7 +305,9 @@ def get_pred_table(next_three_business_days, clean_indicator_df):
 def get_variances(df, next_three_business_days):
     lows_list = df['predicted_low'].values.tolist()
     highs_list = df['predicted_high'].values.tolist()
-    pct_dev = np.random.uniform(-0.08, 0.08)
+
+    rng = np.random.default_rng(123)
+    pct_dev = rng.uniform(-1, 1)
 
     dates = []
     predicted_lows = []
@@ -355,16 +357,16 @@ def get_predicted_direction(pred_df_filled, last_low, last_high):
     low_avgs = calculate_averages(pred_df_filled, pred_low_col, 3)
     high_avgs = calculate_averages(pred_df_filled, pred_high_col, 3)
 
-    # Define a function to set direction based on conditions
+    # set direction based on conditions
     def set_direction(column, values, direction):
         pred_df_filled[column].iloc[values] = direction
 
-    # Set low direction
+    # low direction
     set_direction('predicted_low_direction', slice(0, 3), 'Down' if low_avgs[0] < last_low else 'Up')
     set_direction('predicted_low_direction', slice(3, 6), 'Down' if low_avgs[1] < low_avgs[0] else 'Up')
     set_direction('predicted_low_direction', slice(6, 9), 'Down' if low_avgs[2] < low_avgs[1] else 'Up')
 
-    # Set high direction
+    # high direction
     set_direction('predicted_high_direction', slice(0, 3), 'Down' if high_avgs[0] < last_high else 'Up')
     set_direction('predicted_high_direction', slice(3, 6), 'Down' if high_avgs[1] < high_avgs[0] else 'Up')
     set_direction('predicted_high_direction', slice(6, 9), 'Down' if high_avgs[2] < high_avgs[1] else 'Up')
@@ -525,9 +527,6 @@ def append_indicators(df, start_date, end_date, bayesian=False):
 def get_atr(df, clean_indicator_df):
     high_col = 'predicted_high'
     low_col = 'predicted_low'
-
-    last_high = clean_indicator_df.high.iloc[-1]
-    last_low = clean_indicator_df.low.iloc[-1]
     last_atr = clean_indicator_df.atr.iloc[-1]
 
     # set index to new column 'date'
@@ -541,19 +540,15 @@ def get_atr(df, clean_indicator_df):
     def adjust_within_tolerance(previous_value, tolerance=0.05):
         return previous_value + (previous_value * random.uniform(-tolerance, tolerance))
 
-    # adjustments to 'predicted_low' and 'predicted_high'
+    # adjustments to 'predicted_low' and 'predicted_high' for atr outliers
     for i in range(1, len(df)):
         if df.loc[i, 'atr_outlier']:
             df.loc[i, low_col] = adjust_within_tolerance(df.loc[i - 1, low_col])
             df.loc[i, high_col] = adjust_within_tolerance(df.loc[i - 1, high_col])
 
-    # recalculate atr
+    # recalculate atr & highs
     df['predicted_atr'] = abs(df[high_col] - df[low_col])
-
-    # recalculate highs
     df['predicted_high'] = df[low_col] + df['predicted_atr']
-
-    # move atr to 3rd col
     df.insert(2, "predicted_atr", df.pop('predicted_atr'))
 
     # rounding
@@ -563,7 +558,6 @@ def get_atr(df, clean_indicator_df):
         decimals = 3
     else:
         decimals = 2
-
     df[low_col] = df[low_col].astype(float).round(decimals)
     df[high_col] = df[high_col].astype(float).round(decimals)
     df['predicted_atr'] = df['predicted_atr'].astype(float).round(decimals)
@@ -600,7 +594,7 @@ def get_perf_df(df, ticker):
     grouped_df['date'] = pd.to_datetime(grouped_df['date'])
 
     # merge the DataFrames on 'date'
-    merged_df = pd.merge(grouped_df, df, on='date', how='left')
+    merged_df = pd.merge(grouped_df, df, on='date', how='left', validate="many_to_many")
     merged_df['date'] = pd.to_datetime(merged_df['date']).dt.date
 
     # rename columns
