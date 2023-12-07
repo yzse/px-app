@@ -201,11 +201,10 @@ def show_report_page():
             else:
                 s_file = find_files_with_substrings(s3_files, [s_ticker, s_date, s_status])
 
-            
             # display table
             try:
                 df = conn.read(s_file, input_format="csv", ttl=600)
-                df = df.rename({'Unnamed: 0': 'date'}, axis=1)
+                df = df.drop('Unnamed: 0', axis=1)
                 st.dataframe(df)
             
                 if 'predictions' in s_file:
