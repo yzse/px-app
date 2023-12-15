@@ -35,7 +35,7 @@ def show_indicators():
         ticker = st.text_input("Ticker:", "", placeholder="e.g. AAPL, TSLA, BTC-USD, ETH-USD")
         
         # slider
-        number_of_days = 365 # 365
+        number_of_days = 365
 
         submit_button = st.form_submit_button(label='Submit')
 
@@ -44,7 +44,7 @@ def show_indicators():
             start_time = time.time()
 
             # dates
-            end_date = datetime.date.today() +  timedelta(days=1)
+            end_date = datetime.date.today() + timedelta(days=1)
             start_date = end_date - timedelta(days=number_of_days)
 
             # dataframe
@@ -80,7 +80,7 @@ def show_indicators():
 
             st.write("The best performing indicators to use are `{}` with a lookback of `{}` days.".format(best_indicators, best_lookback))
 
-            model_low, model_high, x_train_low, y_train_low, x_test_low, x_train_high, y_train_high, x_test_high = initiate_model(clean_indicator_df, best_indicators)
+            model_low, model_high, x_train_low, y_train_low, x_train_high, y_train_high = initiate_model(clean_indicator_df, best_indicators)
 
             # highlight first row
             st.dataframe(
@@ -90,12 +90,10 @@ def show_indicators():
             )
 
             # low & high prediction
-            predictions_low_arr = run_model(model_low, clean_indicator_df, x_test_low, x_train_low, y_train_low, 'predictions_low')
-
-            predictions_high_arr = run_model(model_high, clean_indicator_df, x_test_high, x_train_high, y_train_high, 'predictions_high')
-
-            # set same size as predictions_low_arr
-            valid = clean_indicator_df.tail(len(predictions_low_arr))
+            predictions_low_arr = run_model(model_low, clean_indicator_df, x_train_low, y_train_low, 'predictions_low')
+            predictions_high_arr = run_model(model_high, clean_indicator_df, x_train_high, y_train_high, 'predictions_high')
+            
+            valid = clean_indicator_df[:-2]
             valid['predictions_low'] = predictions_low_arr
             valid['predictions_high'] = predictions_high_arr
 
@@ -142,8 +140,6 @@ def show_indicators():
                     - Optimization Algorithm: `adam`
                     - Loss Metric: `mean squared error`
                 """)
-
-            clean_indicator_df['atr'] = clean_indicator_df['high'] - clean_indicator_df['low']
 
             # predict low & atr, set high as low + atr
             pred_df = get_pred_table(get_next_3_bus_days(end_date), clean_indicator_df)

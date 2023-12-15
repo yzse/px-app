@@ -6,22 +6,23 @@ from datetime import date, timedelta
 import pandas as pd
 import streamlit as st
 from sklearn.preprocessing import MinMaxScaler
-from sklearn.model_selection import train_test_split
 from keras.models import Sequential
 from keras.layers import Dense, LSTM
 from collections import defaultdict
 from sklearn.linear_model import LinearRegression
+from statsmodels.tsa.arima.model import ARIMA
 import os
 import tensorflow as tf
 import yfinance as yf
 import ta
+
 pd.set_option('mode.chained_assignment', None)
 
 # set seeds
-os.environ['PYTHONHASHSEED']=str(5)
-tf.random.set_seed(5)
-np.random.seed(5)
-random.seed(5)
+os.environ['PYTHONHASHSEED']=str(1)
+tf.random.set_seed(1)
+np.random.seed(1)
+random.seed(1)
 
 @st.cache_data(ttl=24*3600, max_entries=3)
 def get_dataframe_yf(ticker, start_date, end_date):
@@ -114,9 +115,11 @@ def create_lstm_model(ds):
 
 def prepare_data(data, time_steps):
     X, y = [], []
-    for i in range(len(data) - time_steps):
-        X.append(data[i:i+time_steps])
-        y.append(data[i+time_steps])
+    for i in range(len(data) - time_steps - 1):  # Change the range to include the last element
+        x_val = data[i:(i + time_steps), 0]
+        y_val = data[i + time_steps, 0]
+        X.append(x_val)
+        y.append(y_val)
     return np.array(X), np.array(y)
 
 @st.cache_data(ttl=24*3600, max_entries=3)
@@ -135,39 +138,33 @@ def initiate_model(low_high_df, best_indicators):
     scaled_data_high = scaler.fit_transform(high_prices)
 
     # normalize indicator data
-    indicator_scaler = MinMaxScaler(feature_range=(0, 1))
-    scaled_indicator_data = indicator_scaler.fit_transform(indicators)
+    # indicator_scaler = MinMaxScaler(feature_range=(0, 1))
+    # scaled_indicator_data = indicator_scaler.fit_transform(indicators)
 
     # combine scaled indicator data with scaled price data
-    combined_high = np.concatenate((scaled_data_high, scaled_indicator_data), axis=1)
-    combined_low = np.concatenate((scaled_data_low, scaled_indicator_data), axis=1)
-
-    # train test split
-    train_data_low, test_data_low = train_test_split(combined_low, test_size=0.25, shuffle=False, random_state=1)
-    train_data_high, test_data_high = train_test_split(combined_high, test_size=0.25, shuffle=False, random_state=1)
-
-    time_steps = 1
+    # train_data_high = np.concatenate((scaled_data_high, scaled_indicator_data), axis=1)
+    # train_data_low = np.concatenate((scaled_data_low, scaled_indicator_data), axis=1)
 
     # prepare low + high train data
-    x_train_low, y_train_low = prepare_data(train_data_low, time_steps)
-    x_train_high, y_train_high = prepare_data(train_data_high, time_steps)
-    x_test_low, y_test_low = prepare_data(test_data_low, time_steps)
-    x_test_high, y_test_high = prepare_data(test_data_high, time_steps)
+    # x_train_low = scaled_data_low
+    # x_train_high = scaled_data_high
+
+    x_train_low, y_train_low = prepare_data(scaled_data_low, time_steps=1)
+    x_train_high, y_train_high = prepare_data(scaled_data_high, time_steps=1)
 
     # model
     model_low = create_lstm_model(x_train_low.reshape(-1, 1))
     model_high = create_lstm_model(x_train_high.reshape(-1, 1))
    
-    return model_low, model_high, x_train_low, y_train_low, x_test_low, x_train_high, y_train_high, x_test_high
+    return model_low, model_high, x_train_low, x_train_high, y_train_low, y_train_high
 
 
 @st.cache_resource(ttl=24*3600, max_entries=3)
-def run_model(_model, df, x_test, x_train, y_train, col_name):
+def run_model(_model, df, x_train, y_train, col_name):
 
     # fit
     x_train = x_train.reshape(-1, 1)
     y_train = y_train.reshape(-1, 1)
-    x_test = x_test.reshape(-1, 1)
     _model.fit(x_train, y_train, batch_size=1, epochs=10, verbose=0)
 
     low_scaler = MinMaxScaler(feature_range=(0, 1))
@@ -183,7 +180,7 @@ def run_model(_model, df, x_test, x_train, y_train, col_name):
         high_scaler.fit_transform(high_prices)
 
     # get predicted array
-    predicted_array = _model.predict(x_test, verbose=0)
+    predicted_array = _model.predict(x_train, verbose=0)
 
     # inverse transform
     if col_name=='predictions_low':
@@ -191,7 +188,7 @@ def run_model(_model, df, x_test, x_train, y_train, col_name):
     elif col_name=='predictions_high':
         predicted_array = high_scaler.inverse_transform(predicted_array)
     
-    return predicted_array
+    return predicted_array 
 
 
 @st.cache_data(ttl=24*3600, max_entries=3)
@@ -255,6 +252,8 @@ def get_next_3_bus_days(end_date):
 @st.cache_data(ttl=24*3600, max_entries=3)
 def get_pred_table(next_three_business_days, clean_indicator_df):
 
+    clean_indicator_df['atr'] = clean_indicator_df['high'] - clean_indicator_df['low']
+
     clean_indicator_df = clean_indicator_df.tail(45)
     actual_lows = clean_indicator_df.low.values.tolist()
     actual_highs = clean_indicator_df.high.values.tolist()
@@ -263,16 +262,14 @@ def get_pred_table(next_three_business_days, clean_indicator_df):
     # get average pct diff from one day's low to the next
     actual_avg_pct_diff = abs(np.mean([((actual_lows[i + 1] - actual_lows[i]) / actual_lows[i]) * 100 for i in range(len(actual_lows) - 1)]))
 
-    low_model = LinearRegression()
-    low_model.fit([[i] for i in range(len(actual_lows))], actual_lows)
+    low_model = ARIMA(actual_lows, order=(1, 6, 1))
+    low_model_fit = low_model.fit()
+    next_3_low = low_model_fit.forecast(steps=3)
 
     # create a Linear Regression model for predicting atrs
-    atr_model = LinearRegression()
-    atr_model.fit([[i] for i in range(len(actual_atrs))], actual_atrs)
-
-    # predict the next value for lows and highs
-    next_3_low = low_model.predict([[len(actual_lows) + i] for i in range(3)])
-    next_3_atr = atr_model.predict([[len(actual_atrs) + i] for i in range(3)])
+    atr_model = ARIMA(actual_atrs, order=(2, 2, 2))
+    atr_model_fit = atr_model.fit()
+    next_3_atr = atr_model_fit.forecast(steps=3)
 
     # get pct diff between next_3_low[0] and actual_lows[-1]
     next_pct_diff = abs(((next_3_low[0] - actual_lows[-1]) / actual_lows[-1]) * 100)
@@ -527,6 +524,8 @@ def append_indicators(df, start_date, end_date, bayesian=False):
 def get_atr(df, clean_indicator_df):
     high_col = 'predicted_high'
     low_col = 'predicted_low'
+
+    clean_indicator_df['atr'] = clean_indicator_df['high'] - clean_indicator_df['low']
     last_atr = clean_indicator_df.atr.iloc[-1]
 
     # set index to new column 'date'
