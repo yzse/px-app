@@ -9,7 +9,6 @@ from sklearn.preprocessing import MinMaxScaler
 from keras.models import Sequential
 from keras.layers import Dense, LSTM
 from collections import defaultdict
-from sklearn.linear_model import LinearRegression
 from statsmodels.tsa.arima.model import ARIMA
 import os
 import tensorflow as tf
