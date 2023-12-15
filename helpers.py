@@ -136,18 +136,6 @@ def initiate_model(low_high_df, best_indicators):
     scaled_data_low = scaler.fit_transform(low_prices)
     scaled_data_high = scaler.fit_transform(high_prices)
 
-    # normalize indicator data
-    # indicator_scaler = MinMaxScaler(feature_range=(0, 1))
-    # scaled_indicator_data = indicator_scaler.fit_transform(indicators)
-
-    # combine scaled indicator data with scaled price data
-    # train_data_high = np.concatenate((scaled_data_high, scaled_indicator_data), axis=1)
-    # train_data_low = np.concatenate((scaled_data_low, scaled_indicator_data), axis=1)
-
-    # prepare low + high train data
-    # x_train_low = scaled_data_low
-    # x_train_high = scaled_data_high
-
     x_train_low, y_train_low = prepare_data(scaled_data_low, time_steps=1)
     x_train_high, y_train_high = prepare_data(scaled_data_high, time_steps=1)
 
@@ -261,7 +249,7 @@ def get_pred_table(next_three_business_days, clean_indicator_df):
     # get average pct diff from one day's low to the next
     actual_avg_pct_diff = abs(np.mean([((actual_lows[i + 1] - actual_lows[i]) / actual_lows[i]) * 100 for i in range(len(actual_lows) - 1)]))
 
-    low_model = ARIMA(actual_lows, order=(1, 6, 1))
+    low_model = ARIMA(actual_lows, order=(2, 6, 1))
     low_model_fit = low_model.fit()
     next_3_low = low_model_fit.forecast(steps=3)
 
