@@ -23,7 +23,7 @@ tf.random.set_seed(1)
 np.random.seed(1)
 random.seed(1)
 
-@st.cache_data(ttl=24*3600, max_entries=3)
+# @st.cache_data(ttl=24*3600, max_entries=3)
 def get_dataframe_yf(ticker, start_date, end_date):
     df = yf.download(ticker, start=start_date, end=end_date)
 
@@ -121,7 +121,7 @@ def prepare_data(data, time_steps):
         y.append(y_val)
     return np.array(X), np.array(y)
 
-@st.cache_data(ttl=24*3600, max_entries=3)
+# @st.cache_data(ttl=24*3600, max_entries=3)
 def initiate_model(low_high_df, best_indicators):
 
     # model (these are the 'y's)
@@ -152,7 +152,7 @@ def run_model(_model, df, x_train, y_train, col_name):
     # fit
     x_train = x_train.reshape(-1, 1)
     y_train = y_train.reshape(-1, 1)
-    _model.fit(x_train, y_train, batch_size=1, epochs=10, verbose=0)
+    _model.fit(x_train, y_train, batch_size=5, epochs=20, verbose=0)
 
     low_scaler = MinMaxScaler(feature_range=(0, 1))
     high_scaler = MinMaxScaler(feature_range=(0, 1))
@@ -178,7 +178,7 @@ def run_model(_model, df, x_train, y_train, col_name):
     return predicted_array 
 
 
-@st.cache_data(ttl=24*3600, max_entries=3)
+# @st.cache_data(ttl=24*3600, max_entries=3)
 def get_grouped_df(df): # turn predictions into table
     df.index = pd.to_datetime(df.index)
 
@@ -240,7 +240,7 @@ def randomize_value(base, min_percent, max_percent):
     random_factor = random.uniform(min_percent, max_percent)
     return base * (1 + random_factor)
 
-@st.cache_data(ttl=24*3600, max_entries=3)
+# @st.cache_data(ttl=24*3600, max_entries=3)
 def get_pred_table(next_three_business_days, clean_indicator_df):
 
     clean_indicator_df['atr'] = clean_indicator_df['high'] - clean_indicator_df['low']
@@ -439,7 +439,7 @@ def find_files_with_substrings(file_list, substrings):
         matched_files = None
     return matched_files
 
-@st.cache_data(ttl=24*3600, max_entries=3)
+# @st.cache_data(ttl=24*3600, max_entries=3)
 def append_indicators(df, start_date, end_date, bayesian=False):
 
     # convert dates to strings
@@ -505,6 +505,9 @@ def append_indicators(df, start_date, end_date, bayesian=False):
     # clean up
     df = df.iloc[1:]
     df = df.applymap(remove_trailing_zeroes)
+
+    # except for first 5 columns, shift dataframe to lag 1 day
+    df.iloc[:, 5:] = df.iloc[:, 5:].shift(1)
 
     return df
 
