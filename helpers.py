@@ -35,7 +35,7 @@ def get_dataframe_yf(ticker, start_date, end_date):
 
 def load_chart(low_high_df):
     sma_df = low_high_df.copy()
-    st.subheader('SMA Chart')
+    st.subheader('Simple Moving Average Chart')
     sma_df['sma_5'] = sma_df['close'].rolling(window=5).mean()
     sma_df['sma_20'] = sma_df['close'].rolling(window=20).mean()
     return st.line_chart(sma_df[['close', 'sma_5', 'sma_20']])
@@ -235,6 +235,10 @@ def get_next_3_bus_days(end_date):
 
     return next_three_business_days
 
+# function to generate a random value within a range
+def randomize_value(base, min_percent, max_percent):
+    random_factor = random.uniform(min_percent, max_percent)
+    return base * (1 + random_factor)
 
 @st.cache_data(ttl=24*3600, max_entries=3)
 def get_pred_table(next_three_business_days, clean_indicator_df):
@@ -261,11 +265,7 @@ def get_pred_table(next_three_business_days, clean_indicator_df):
     # get pct diff between next_3_low[0] and actual_lows[-1]
     next_pct_diff = abs(((next_3_low[0] - actual_lows[-1]) / actual_lows[-1]) * 100)
 
-    # function to generate a random value within a range
-    def randomize_value(base, min_percent, max_percent):
-        random_factor = random.uniform(min_percent, max_percent)
-        return base * (1 + random_factor)
-
+    
     # check if next_pct_diff exceeds a threshold
     if next_pct_diff > actual_avg_pct_diff * 1.2:
         next_3_low = [randomize_value(actual_lows[-1], -0.02, 0.02) for _ in range(3)]
@@ -598,3 +598,37 @@ def get_perf_df(df, ticker):
     merged_df['pct_diff_high'] = pct_diff_high * 100
 
     return merged_df
+
+def show_range_df(df): # show table with ranges of predicted lows and highs
+    processed_data = df.groupby('date').agg({
+        'predicted_low': ['min', 'max'],
+        'predicted_high': ['min', 'max'],
+        'predicted_atr': 'mean',
+        'predicted_low_direction': lambda x: x.iloc[0],
+        'predicted_high_direction': lambda x: x.iloc[0]
+    }).reset_index()
+
+    processed_data.columns = ['date', 'predicted_low_min', 'predicted_low_max', 
+                              'predicted_high_min', 'predicted_high_max', 'predicted_atr', 
+                              'predicted_low_direction', 'predicted_high_direction']
+
+    for i in range(len(processed_data)):
+        processed_data.loc[i, 'predicted_low_min'] = randomize_value(processed_data.loc[i, 'predicted_low_min'], -0.0125, 0)
+        processed_data.loc[i, 'predicted_low_max'] = randomize_value(processed_data.loc[i, 'predicted_low_max'], 0, 0.0125)
+        processed_data.loc[i, 'predicted_high_min'] = randomize_value(processed_data.loc[i, 'predicted_high_min'], -0.0125, 0)
+        processed_data.loc[i, 'predicted_high_max'] = randomize_value(processed_data.loc[i, 'predicted_high_max'], 0, 0.0125)
+
+    processed_data['predicted_atr'] = processed_data['predicted_atr'].round(2)
+
+    processed_data['predicted_low_min'] = processed_data['predicted_low_min'].round(2)
+    processed_data['predicted_low_max'] = processed_data['predicted_low_max'].round(2)
+    processed_data['predicted_high_min'] = processed_data['predicted_high_min'].round(2)
+    processed_data['predicted_high_max'] = processed_data['predicted_high_max'].round(2)
+    
+    processed_data['predicted_low_range'] = processed_data['predicted_low_min'].astype(str) + ' — ' + processed_data['predicted_low_max'].astype(str)
+
+    processed_data['predicted_high_range'] = processed_data['predicted_high_min'].astype(str) + ' — ' + processed_data['predicted_high_max'].astype(str)
+
+    processed_data = processed_data[['date', 'predicted_low_range', 'predicted_high_range', 'predicted_atr', 'predicted_low_direction', 'predicted_high_direction']]
+
+    return processed_data

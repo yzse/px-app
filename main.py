@@ -148,6 +148,9 @@ def show_indicators():
 
             st.dataframe(pred_df_atr)
 
+            st.write("Predicted price ranges for the next 3 trading days.")
+            st.dataframe(show_range_df(pred_df_atr))
+
             s3 = s3fs.S3FileSystem(anon=False)
             time_t = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
             path = f"{'myawsbucket-st'}/'streamlit_uploads'/{time_t}"
