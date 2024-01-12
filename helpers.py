@@ -60,7 +60,7 @@ def get_best_ind_params(clean_indicator_df):
     clean_indicator_df = clean_indicator_df[['open', 'low', 'high', 'close', 'volume'] + all_corr['indicator'].tolist()]
     return clean_indicator_df
 
-def get_highest_corr(clean_indicator_df):
+def get_highest_corr(clean_indicator_df, corr_pct):
 
     lookback_periods = [365, 180, 120, 90, 60]
     mean_correlations = {}
@@ -71,7 +71,7 @@ def get_highest_corr(clean_indicator_df):
         mean_correlations[str(period)] = correlation
 
     top_three_lookbacks = sorted(mean_correlations, key=mean_correlations.get, reverse=True)[:5]
-
+    
     top_three_lookbacks_dfs = []
 
     for lookback in top_three_lookbacks:
@@ -81,17 +81,21 @@ def get_highest_corr(clean_indicator_df):
 
     for i in range(len(top_three_lookbacks_dfs)):
         # row names for indicators above 80
-        indicators_above_80 = get_correlation_matrix(top_three_lookbacks_dfs[i]).mean(axis=1)[get_correlation_matrix(top_three_lookbacks_dfs[i]).mean(axis=1) >= 0.8].index.tolist()
+        indicators_above_corr_pct = get_correlation_matrix(top_three_lookbacks_dfs[i]).mean(axis=1)[get_correlation_matrix(top_three_lookbacks_dfs[i]).mean(axis=1) >= corr_pct].index.tolist()
 
         # mean correlation for the indicators_above_80
-        indicators_above_80_mean_corr = get_correlation_matrix(top_three_lookbacks_dfs[i]).mean(axis=1)[get_correlation_matrix(top_three_lookbacks_dfs[i]).mean(axis=1) >= 0.8].mean()
+        indicators_above_corr_pct_mean_corr = get_correlation_matrix(top_three_lookbacks_dfs[i]).mean(axis=1)[get_correlation_matrix(top_three_lookbacks_dfs[i]).mean(axis=1) >= corr_pct].mean()
 
         # set to 365 if lookback more than 180
         lookback = len(top_three_lookbacks_dfs[i])
-        if lookback > 180:
-            lookback = 365
+        
+        adjusted_lookback = 365 if int(lookback) > 180 else int(lookback)
 
-        result_df = result_df.append({'indicators correlated at > 80%': indicators_above_80, 'lookback': lookback, 'mean correlation': indicators_above_80_mean_corr}, ignore_index=True)
+        result_df = result_df._append({
+            'indicators correlated at > 80%': indicators_above_corr_pct,
+            'lookback': adjusted_lookback,
+            'mean correlation': indicators_above_corr_pct_mean_corr
+            }, ignore_index=True)
 
     result_df.dropna(inplace=True)
     result_df.sort_values(by=['mean correlation'], ascending=False, inplace=True)

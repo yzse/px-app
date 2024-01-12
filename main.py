@@ -17,7 +17,7 @@ random.seed(1)
 
 def show_indicators():
 
-    st.title("Stock Price Prediction for Highs & Lows (+ indicators)")
+    # st.title("Stock Price Prediction for Highs & Lows (+ indicators)")
 
     with st.expander("Available Indicators"):
 
@@ -54,6 +54,7 @@ def show_indicators():
             # get df with indicators
             clean_indicator_df = append_indicators(low_high_df, start_date, end_date, bayesian=True)
             clean_indicator_df = clean_indicator_df.apply(pd.to_numeric, errors='coerce')
+            
 
             if clean_indicator_df.isnull().values.any():
                 # impute missing values
@@ -69,16 +70,11 @@ def show_indicators():
             with st.expander("More about the correlation matrix"):
                 st.write(" - The correlation matrix shows the correlation between the selected indicators and the low & high prices. The closer the value is to 1, the stronger the positive correlation. The closer the value is to -1, the stronger the negative correlation. A value of 0 indicates no correlation.")
                 st.write(" - The correlation matrix is calculated using the Pearson correlation coefficient, which measures the linear correlation between two variables X and Y. The coefficient's value ranges from -1 to 1. A value of 1 implies that a linear equation describes the relationship between X and Y perfectly, with all data points lying on a line for which Y increases as X increases. A value of -1 implies that all data points lie on a line for which Y decreases as X increases. A value of 0 implies that there is no linear correlation between the variables.")
-                st.write("- The column 'indicators correlated at > 80%' shows the indicators that have a correlation of over 80% with the low & high prices. These indicators are used to train the model. The number of days to lookback is also selected based on the highest correlation with the low & high prices. The mean correlation is calculated by averaging the correlation between the low price and the high price.")
-
+                st.write(" - The column 'indicators correlated at > 80%' shows the indicators that have a correlation of over 80% with the low & high prices. These indicators are used to train the model. The number of days to lookback is also selected based on the highest correlation with the low & high prices. The mean correlation is calculated by averaging the correlation between the low price and the high price.")
 
             clean_indicator_df = get_best_ind_params(clean_indicator_df)
-
-            best_corr_df = get_highest_corr(clean_indicator_df)
-
+            best_corr_df = get_highest_corr(clean_indicator_df, corr_pct=0.8)
             best_indicators, best_lookback = best_corr_df.iloc[0][0], best_corr_df.iloc[0][1]
-
-            st.write("The best performing indicators to use are `{}` with a lookback of `{}` days.".format(best_indicators, best_lookback))
 
             model_low, model_high, x_train_low, y_train_low, x_train_high, y_train_high = initiate_model(clean_indicator_df, best_indicators)
 
@@ -146,7 +142,7 @@ def show_indicators():
 
             pred_df_atr = get_atr(pred_df, clean_indicator_df)
 
-            st.dataframe(pred_df_atr)
+            # st.dataframe(pred_df_atr)
 
             st.write("Predicted price ranges for the next 3 trading days.")
             st.dataframe(show_range_df(pred_df_atr))
