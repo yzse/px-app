@@ -17,7 +17,7 @@ random.seed(1)
 
 def show_indicators():
 
-    # st.title("Stock Price Prediction for Highs & Lows (+ indicators)")
+    st.title("Stock Price Prediction for Highs & Lows (+ indicators)")
 
     with st.expander("Available Indicators"):
 
